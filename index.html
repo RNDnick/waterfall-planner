@@ -482,6 +482,31 @@ async function loadAll(){
   await graduatePromos();
 }
 
+const BACKUP_COLLECTIONS = ['expenses','debts','months','incomeSources','billPayments','debtPayments'];
+async function exportBackupData(){
+  const data = { settings: (await getSettingsv()) || null };
+  for (const name of BACKUP_COLLECTIONS){
+    const rows = await getCollection(name);
+    const obj = {};
+    rows.forEach(r => { const { id, ...rest } = r; obj[id] = rest; });
+    data[name] = obj;
+  }
+  return data;
+}
+async function importBackupData(data){
+  if (usingDb){
+    if (data.settings) await setSettingsv(data.settings);
+    for (const name of BACKUP_COLLECTIONS){
+      const coll = data[name] || {};
+      for (const [id, val] of Object.entries(coll)) await setDocv(name, id, val);
+    }
+  } else {
+    mem.settings = data.settings || null;
+    for (const name of BACKUP_COLLECTIONS) mem[name] = data[name] || {};
+    memSave();
+  }
+}
+
 /* ---------------- rendering ---------------- */
 const app = document.getElementById('app');
 
@@ -723,6 +748,18 @@ function setupHtml(){
         <label class="f">Min pmt<input type="number" id="nd-min" min="0" step="0.01" placeholder="0"></label>
         <button class="btn sm" style="align-self:flex-end" onclick="App.addDebt()">+ Add debt</button>
       </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <div><h2>Backup &amp; restore</h2><div class="sub">This browser is the only place your data is stored — export a backup now and then to be safe, or to move your data to another browser or device.</div></div>
+    </div>
+    <div class="add-row">
+      <button class="btn ghost sm" onclick="App.exportBackup()">Export backup (.json)</button>
+      <label class="f">Import backup
+        <input type="file" id="import-file" accept="application/json" onchange="App.importBackupFile(this.files[0])">
+      </label>
     </div>
   </div>`;
 }
@@ -1168,6 +1205,31 @@ window.App = {
     const paid = existing ? existing.paid : false;
     await setDocv('debtPayments', docId, { monthId:S.currentMonthId, debtId, paid, amountPaid:value });
     await loadAll(); renderTab();
+  },
+
+  async exportBackup(){
+    const data = await exportBackupData();
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type:'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'waterfall-backup.json';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 1000);
+  },
+  async importBackupFile(file){
+    if (!file) return;
+    if (!confirm('This replaces all current data in this browser with the contents of the backup file. Continue?')) { document.getElementById('import-file').value=''; return; }
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      await importBackupData(data);
+      S.extraTargetId = null; S.assumedExtra = null; S.editingConfirmed = false; S.currentIncome = '';
+      await loadAll();
+      render();
+    } catch(e){
+      alert("Couldn't read that file — make sure it's a Waterfall backup .json file.");
+    }
+    document.getElementById('import-file').value = '';
   },
   changeMonth(id){
     S.currentMonthId = id;
