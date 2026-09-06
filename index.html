@@ -329,29 +329,32 @@ function computeWaterfall(income, expenses, debts, minOrderStrategy, extraTarget
   for (const e of essentials){
     const planned = monthlyAmount(e, monthId);
     const ov = expenseOverrides[e.id];
-    const actualOverride = !!(ov && ov.paid && ov.amountPaid!=null);
-    const due = actualOverride ? ov.amountPaid : planned;
-    const pay = Math.max(0, Math.min(remaining, due));
-    remaining -= pay;
-    lines.push({ section:'essential', id:e.id, name:e.name, due, plannedAmount:planned, actualOverride, paid:pay, freq:e.frequency||'monthly', rawAmount:e.amount, dueDay:e.dueDay||null });
+    const isPaid = !!(ov && ov.paid);
+    const actualAmount = (ov && ov.amountPaid!=null) ? ov.amountPaid : planned;
+    let due, pay;
+    if (isPaid){ due = actualAmount; pay = actualAmount; }
+    else { due = planned; pay = Math.max(0, Math.min(remaining, due)); remaining -= pay; }
+    lines.push({ section:'essential', id:e.id, name:e.name, due, plannedAmount:planned, actualOverride:isPaid, isPaid, paid:pay, freq:e.frequency||'monthly', rawAmount:e.amount, dueDay:e.dueDay||null });
   }
   for (const d of orderedMin){
     const plannedMin = d.minPayment;
     const dov = debtOverrides[d.id];
-    const debtActualOverride = !!(dov && dov.paid && dov.amountPaid!=null);
-    const due = debtActualOverride ? dov.amountPaid : plannedMin;
-    const pay = Math.max(0, Math.min(remaining, due));
-    remaining -= pay;
-    lines.push({ section:'debtMin', id:d.id, name:d.name, due, plannedAmount:plannedMin, actualOverride:debtActualOverride, paid:pay, apr:getApr(d), balance:d.balance });
+    const isPaid = !!(dov && dov.paid);
+    const actualAmount = (dov && dov.amountPaid!=null) ? dov.amountPaid : plannedMin;
+    let due, pay;
+    if (isPaid){ due = actualAmount; pay = actualAmount; }
+    else { due = plannedMin; pay = Math.max(0, Math.min(remaining, due)); remaining -= pay; }
+    lines.push({ section:'debtMin', id:d.id, name:d.name, due, plannedAmount:plannedMin, actualOverride:isPaid, isPaid, paid:pay, apr:getApr(d), balance:d.balance });
   }
   for (const x of discretionary){
     const planned = monthlyAmount(x, monthId);
     const ov = expenseOverrides[x.id];
-    const actualOverride = !!(ov && ov.paid && ov.amountPaid!=null);
-    const due = actualOverride ? ov.amountPaid : planned;
-    const pay = Math.max(0, Math.min(remaining, due));
-    remaining -= pay;
-    lines.push({ section:'discretionary', id:x.id, name:x.name, due, plannedAmount:planned, actualOverride, paid:pay, freq:x.frequency||'monthly', rawAmount:x.amount, dueDay:x.dueDay||null });
+    const isPaid = !!(ov && ov.paid);
+    const actualAmount = (ov && ov.amountPaid!=null) ? ov.amountPaid : planned;
+    let due, pay;
+    if (isPaid){ due = actualAmount; pay = actualAmount; }
+    else { due = planned; pay = Math.max(0, Math.min(remaining, due)); remaining -= pay; }
+    lines.push({ section:'discretionary', id:x.id, name:x.name, due, plannedAmount:planned, actualOverride:isPaid, isPaid, paid:pay, freq:x.frequency||'monthly', rawAmount:x.amount, dueDay:x.dueDay||null });
   }
   const extra = Math.max(0, remaining);
   const shortfall = lines.reduce((s,l)=> s + Math.max(0, l.due - l.paid), 0);
@@ -825,9 +828,11 @@ function recomputeMonth(){
   const afterById = {};
   previewDebts.forEach(d => afterById[d.id] = d.balance);
 
-  const requiredTotal = wf2.lines.filter(l=>l.section!=='discretionary').reduce((s,l)=>s+l.due,0);
-  const discTotal = wf2.lines.filter(l=>l.section==='discretionary').reduce((s,l)=>s+l.due,0);
-  const shouldBeLeft = totalIncome - requiredTotal - discTotal;
+  const requiredTotal = wf2.lines.filter(l=>l.section!=='discretionary' && !l.isPaid).reduce((s,l)=>s+l.due,0);
+  const discTotal = wf2.lines.filter(l=>l.section==='discretionary' && !l.isPaid).reduce((s,l)=>s+l.due,0);
+  const requiredTotalPlanned = wf2.lines.filter(l=>l.section!=='discretionary').reduce((s,l)=>s+l.plannedAmount,0);
+  const discTotalPlanned = wf2.lines.filter(l=>l.section==='discretionary').reduce((s,l)=>s+l.plannedAmount,0);
+  const shouldBeLeft = totalIncome - requiredTotalPlanned - discTotalPlanned;
   const target = wf2.liveDebts.find(d=>d.id===S.extraTargetId) || null;
 
   const el = document.getElementById('monthResults');
@@ -1265,7 +1270,7 @@ window.App = {
     const paymentsByExpense = buildPaymentOverrides(S.currentMonthId);
     const paymentsByDebt = buildDebtPaymentOverrides(S.currentMonthId);
     const wf = computeWaterfall(availableFunds, S.expenses, S.debts, minOrderStrategy, S.extraTargetId, S.currentMonthId, { expense: paymentsByExpense, debt: paymentsByDebt });
-    const requiredTotal = wf.lines.filter(l=>l.section!=='discretionary').reduce((s,l)=>s+l.due,0);
+    const requiredTotal = wf.lines.filter(l=>l.section!=='discretionary' && !l.isPaid).reduce((s,l)=>s+l.due,0);
     const targetDebt = wf.liveDebts.find(d=>d.id===S.extraTargetId) || null;
     const updatedDebts = applyMonthToDebts(S.debts, wf.lines, wf.extra, S.extraTargetId, minOrderStrategy, S.currentMonthId);
     const debtSnapshots = wf.liveDebts.map(d => {
