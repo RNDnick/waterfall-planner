@@ -167,6 +167,8 @@
   .bill-bottom .field-block{ gap:4px; }
   .paid-toggle{ display:flex; align-items:center; gap:6px; font-size:11px; text-transform:uppercase; letter-spacing:.03em; font-weight:700; color:var(--text-muted); cursor:pointer; white-space:nowrap; padding-top:3px; }
   .paid-toggle input{ width:16px; height:16px; accent-color:var(--good); cursor:pointer; }
+  .wk-progress{ height:6px; background:var(--surface-2); border-radius:100px; overflow:hidden; margin-top:6px; width:100%; }
+  .wk-progress-fill{ height:100%; background:var(--accent); border-radius:100px; }
   .chip{ font-size:11px; font-weight:700; padding:3px 9px; border-radius:100px; white-space:nowrap; }
   .chip.paid{ background:var(--good-soft); color:var(--good); }
   .chip.partial{ background:var(--warn-soft); color:var(--warn); }
@@ -334,6 +336,24 @@ function buildDebtPaymentOverrides(monthId){
   return map;
 }
 
+function computeExpenseLine(e, monthId, ov, remaining){
+  const planned = monthlyAmount(e, monthId);
+  let due, pay, isPaid, paidSoFar = 0;
+  if (e.frequency === 'weekly'){
+    paidSoFar = (ov && ov.amountPaid!=null) ? ov.amountPaid : 0;
+    due = Math.max(0, planned - paidSoFar);
+    pay = Math.max(0, Math.min(remaining, due));
+    remaining -= pay;
+    isPaid = due <= 0.005;
+  } else {
+    isPaid = !!(ov && ov.paid);
+    const actualAmount = (ov && ov.amountPaid!=null) ? ov.amountPaid : planned;
+    if (isPaid){ due = actualAmount; pay = actualAmount; }
+    else { due = planned; pay = Math.max(0, Math.min(remaining, due)); remaining -= pay; }
+  }
+  return { planned, due, pay, isPaid, paidSoFar, remaining };
+}
+
 function computeWaterfall(income, expenses, debts, minOrderStrategy, extraTargetId, monthId, overrides, oneOffBills){
   overrides = overrides || {};
   oneOffBills = oneOffBills || [];
@@ -348,14 +368,10 @@ function computeWaterfall(income, expenses, debts, minOrderStrategy, extraTarget
   const orderedMin = sortByStrategy(live, minOrderStrategy, getApr);
 
   for (const e of essentials){
-    const planned = monthlyAmount(e, monthId);
     const ov = expenseOverrides[e.id];
-    const isPaid = !!(ov && ov.paid);
-    const actualAmount = (ov && ov.amountPaid!=null) ? ov.amountPaid : planned;
-    let due, pay;
-    if (isPaid){ due = actualAmount; pay = actualAmount; }
-    else { due = planned; pay = Math.max(0, Math.min(remaining, due)); remaining -= pay; }
-    lines.push({ section:'essential', id:e.id, name:e.name, due, plannedAmount:planned, actualOverride:isPaid, isPaid, paid:pay, freq:e.frequency||'monthly', rawAmount:e.amount, dueDay:e.dueDay||null });
+    const r = computeExpenseLine(e, monthId, ov, remaining);
+    remaining = r.remaining;
+    lines.push({ section:'essential', id:e.id, name:e.name, due:r.due, plannedAmount:r.planned, actualOverride:r.isPaid, isPaid:r.isPaid, paid:r.pay, paidSoFar:r.paidSoFar, freq:e.frequency||'monthly', rawAmount:e.amount, dueDay:e.dueDay||null });
   }
   for (const b of oneOffBills){
     const planned = b.amount;
@@ -377,14 +393,10 @@ function computeWaterfall(income, expenses, debts, minOrderStrategy, extraTarget
     lines.push({ section:'debtMin', id:d.id, name:d.name, due, plannedAmount:plannedMin, actualOverride:isPaid, isPaid, paid:pay, apr:getApr(d), balance:d.balance });
   }
   for (const x of discretionary){
-    const planned = monthlyAmount(x, monthId);
     const ov = expenseOverrides[x.id];
-    const isPaid = !!(ov && ov.paid);
-    const actualAmount = (ov && ov.amountPaid!=null) ? ov.amountPaid : planned;
-    let due, pay;
-    if (isPaid){ due = actualAmount; pay = actualAmount; }
-    else { due = planned; pay = Math.max(0, Math.min(remaining, due)); remaining -= pay; }
-    lines.push({ section:'discretionary', id:x.id, name:x.name, due, plannedAmount:planned, actualOverride:isPaid, isPaid, paid:pay, freq:x.frequency||'monthly', rawAmount:x.amount, dueDay:x.dueDay||null });
+    const r = computeExpenseLine(x, monthId, ov, remaining);
+    remaining = r.remaining;
+    lines.push({ section:'discretionary', id:x.id, name:x.name, due:r.due, plannedAmount:r.planned, actualOverride:r.isPaid, isPaid:r.isPaid, paid:r.pay, paidSoFar:r.paidSoFar, freq:x.frequency||'monthly', rawAmount:x.amount, dueDay:x.dueDay||null });
   }
   const extra = Math.max(0, remaining);
   const shortfall = lines.reduce((s,l)=> s + Math.max(0, l.due - l.paid), 0);
@@ -937,6 +949,25 @@ function recomputeMonth(){
     const labelHtml = label ? `<div class="section-label"><span class="dot" style="background:${color}"></span>${label}</div>` : '';
     return labelHtml +
       items.map(l => {
+        if (!isDebt && !isOneOff && l.freq==='weekly'){
+          const pct = l.plannedAmount>0 ? Math.min(100, Math.round(l.paidSoFar/l.plannedAmount*100)) : 0;
+          return `
+        <div class="wline bill-line ${l.isPaid?'is-paid':''}">
+          <div class="bill-top">
+            <div class="nm">${esc(l.name)}<div class="sub2">${money(l.rawAmount)} ${freqLabel(l.freq)} · ${money(l.paidSoFar)} of ${money(l.plannedAmount)} paid this month</div>
+              <div class="wk-progress"><div class="wk-progress-fill" style="width:${pct}%"></div></div>
+            </div>
+            ${statusChip(l)}
+          </div>
+          <div class="bill-bottom">
+            <div class="field-block">
+              <span class="fl">Paid so far</span>
+              <div class="cell-wrap"><span class="cell-affix">£</span><input class="cell-input num" type="number" min="0" step="0.01" value="${l.paidSoFar}" onchange="App.setWeeklyPaidSoFar('${l.id}', this.value)"></div>
+            </div>
+            <button class="btn ghost sm" onclick="App.addWeeklyPayment('${l.id}', ${l.rawAmount})">+ Add this week's ${money(l.rawAmount)}</button>
+          </div>
+        </div>`;
+        }
         let isPaid, actualAmount;
         if (isOneOff){
           const raw = S.oneOffBills.find(b=>b.id===l.id);
@@ -1299,6 +1330,20 @@ window.App = {
     const existing = S.billPayments.find(p=>p.id===docId);
     const paid = existing ? existing.paid : false;
     await setDocv('billPayments', docId, { monthId:S.currentMonthId, expenseId, paid, amountPaid:value });
+    await loadAll(); renderTab();
+  },
+  async setWeeklyPaidSoFar(expenseId, raw){
+    const value = parseFloat(raw);
+    if (!(value>=0)) { renderTab(); return; }
+    const docId = `${S.currentMonthId}_${expenseId}`;
+    await setDocv('billPayments', docId, { monthId:S.currentMonthId, expenseId, amountPaid:value });
+    await loadAll(); renderTab();
+  },
+  async addWeeklyPayment(expenseId, amount){
+    const docId = `${S.currentMonthId}_${expenseId}`;
+    const existing = S.billPayments.find(p=>p.id===docId);
+    const current = existing && existing.amountPaid!=null ? existing.amountPaid : 0;
+    await setDocv('billPayments', docId, { monthId:S.currentMonthId, expenseId, amountPaid: current + amount });
     await loadAll(); renderTab();
   },
 
