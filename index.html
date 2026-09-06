@@ -470,7 +470,7 @@ function simulatePayoff(initialDebts, monthlyExtra, strategy, capMonths){
 /* ---------------- state ---------------- */
 const S = {
   strategy: 'compare',
-  expenses: [], debts: [], months: [], incomeSources: [], billPayments: [], debtPayments: [], oneOffBills: [],
+  expenses: [], debts: [], months: [], incomeSources: [], billPayments: [], debtPayments: [], oneOffBills: [], monthDrafts: [],
   activeTab: 'setup',
   currentMonthId: todayMonthId(),
   currentIncome: '',
@@ -526,7 +526,23 @@ async function loadAll(){
   S.billPayments = await getCollection('billPayments');
   S.debtPayments = await getCollection('debtPayments');
   S.oneOffBills = await getCollection('oneOffBills');
+  S.monthDrafts = await getCollection('monthDrafts');
   await graduatePromos();
+}
+
+function restoreMonthInputs(monthId){
+  const existing = S.months.find(m=>m.id===monthId);
+  const draft = S.monthDrafts.find(d=>d.id===monthId);
+  if (existing){
+    S.currentIncome = existing.salary!=null ? existing.salary : existing.income;
+    S.currentBalance = existing.currentBalance!=null ? existing.currentBalance : '';
+  } else if (draft){
+    S.currentIncome = draft.salary!=null ? draft.salary : '';
+    S.currentBalance = draft.currentBalance!=null ? draft.currentBalance : '';
+  } else {
+    S.currentIncome = '';
+    S.currentBalance = '';
+  }
 }
 
 const BACKUP_COLLECTIONS = ['expenses','debts','months','incomeSources','billPayments','debtPayments'];
@@ -823,7 +839,7 @@ function monthShellHtml(){
       <div style="display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap">
         <label class="f">Month<input type="month" id="mi-month" value="${S.currentMonthId}" onchange="App.changeMonth(this.value)"></label>
         <label class="f">Salary this month
-          <input type="number" id="mi-income" min="0" step="0.01" style="width:140px; font-size:15px" value="${S.currentIncome}" placeholder="0" oninput="App.onIncomeInput(this.value)">
+          <input type="number" id="mi-income" min="0" step="0.01" style="width:140px; font-size:15px" value="${S.currentIncome}" placeholder="0" oninput="App.onIncomeInput(this.value)" onchange="App.saveDraft()">
         </label>
       </div>
     </div>
@@ -1259,7 +1275,14 @@ window.App = {
   },
 
   onIncomeInput(v){ S.currentIncome = v; recomputeMonth(); },
-  onBalanceInput(v){ S.currentBalance = v; recomputeMonth(); },
+  async onBalanceInput(v){ S.currentBalance = v; recomputeMonth(); await App.saveDraft(); },
+  async saveDraft(){
+    const data = { salary: S.currentIncome||0, currentBalance: S.currentBalance||0 };
+    await setDocv('monthDrafts', S.currentMonthId, data);
+    const idx = S.monthDrafts.findIndex(d=>d.id===S.currentMonthId);
+    if (idx>=0) S.monthDrafts[idx] = { id:S.currentMonthId, ...data };
+    else S.monthDrafts.push({ id:S.currentMonthId, ...data });
+  },
   setExtraTarget(id){ S.extraTargetId = id; recomputeMonth(); },
 
   async setBillPaid(expenseId, checked, dueAmount){
@@ -1345,8 +1368,7 @@ window.App = {
   changeMonth(id){
     S.currentMonthId = id;
     const existing = S.months.find(m=>m.id===id);
-    S.currentIncome = existing ? (existing.salary!=null ? existing.salary : existing.income) : '';
-    S.currentBalance = existing && existing.currentBalance!=null ? existing.currentBalance : '';
+    restoreMonthInputs(id);
     S.extraTargetId = existing ? existing.extraTargetId : null;
     S.editingConfirmed = false;
     renderTab();
@@ -1406,6 +1428,7 @@ window.App = {
   usingDb = !!db;
   await seedIfEmpty();
   await loadAll();
+  restoreMonthInputs(S.currentMonthId);
   render();
 })();
 
