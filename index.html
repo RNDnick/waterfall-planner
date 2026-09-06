@@ -802,7 +802,7 @@ function recomputeMonth(){
   const balanceInput = document.getElementById('mi-balance');
   const currentBalance = Math.max(0, parseFloat((balanceInput && balanceInput.value) || S.currentBalance) || 0);
   S.currentBalance = currentBalance;
-  const availableFunds = totalIncome + currentBalance;
+  const availableFunds = currentBalance;
 
   const existing = S.months.find(m => m.id === S.currentMonthId);
   const confirmed = existing && !S.editingConfirmed;
@@ -827,6 +827,7 @@ function recomputeMonth(){
 
   const requiredTotal = wf2.lines.filter(l=>l.section!=='discretionary').reduce((s,l)=>s+l.due,0);
   const discTotal = wf2.lines.filter(l=>l.section==='discretionary').reduce((s,l)=>s+l.due,0);
+  const shouldBeLeft = totalIncome - requiredTotal - discTotal;
   const target = wf2.liveDebts.find(d=>d.id===S.extraTargetId) || null;
 
   const el = document.getElementById('monthResults');
@@ -849,12 +850,13 @@ function recomputeMonth(){
       <div class="stat ${wf2.extra>0?'good':(wf2.shortfall>0?'danger':'')}">
         <div class="k">${wf2.shortfall>0.5?'Shortfall':'Extra toward debt'}</div>
         <div class="v mono">${wf2.shortfall>0.5 ? money(-wf2.shortfall) : money(wf2.extra)}</div>
+        <div class="muted" style="font-size:11px; margin-top:4px;">should be ${money(shouldBeLeft)} based on income</div>
       </div>
     </div>`;
 
   const shortfallBanner = wf2.shortfall>0.5 ? `
     <div class="banner danger">
-      <div><b>Income doesn't cover everything this month</b> — ${money(wf2.shortfall)} short. Bills below are paid in priority order; anything short is marked. Reorder priority in Setup if needed.</div>
+      <div><b>Your current balance doesn't cover everything this month</b> — ${money(wf2.shortfall)} short. Bills below are paid in priority order; anything short is marked. Reorder priority in Setup if needed.</div>
     </div>` : '';
 
   function group(section, label, color){
@@ -914,7 +916,7 @@ function recomputeMonth(){
   if (!wf2.liveDebts.length){
     extraHtml = `<div class="extra-box"><div class="rec-line">No debts tracked in Setup — ${wf2.extra>0.5?`this month's extra of <b>${money(wf2.extra)}</b> is free to save or roll into next month.`:'nothing left over this month.'}</div></div>`;
   } else if (wf2.extra <= 0.5){
-    extraHtml = `<div class="extra-box"><div class="rec-line">No extra available this month — bills and minimum payments use all the income.</div></div>`;
+    extraHtml = `<div class="extra-box"><div class="rec-line">No extra available right now — bills and minimum payments use all of your current balance.</div></div>`;
   } else {
     extraHtml = `<div class="extra-box">
       <div class="section-label" style="margin-top:0"><span class="dot" style="background:var(--accent)"></span>Extra toward debt</div>
@@ -1259,7 +1261,7 @@ window.App = {
     const otherIncome = S.incomeSources.reduce((s,src)=> s + monthlyAmount(src, S.currentMonthId), 0);
     const totalIncome = S.currentIncome + otherIncome;
     const currentBalance = S.currentBalance || 0;
-    const availableFunds = totalIncome + currentBalance;
+    const availableFunds = currentBalance;
     const paymentsByExpense = buildPaymentOverrides(S.currentMonthId);
     const paymentsByDebt = buildDebtPaymentOverrides(S.currentMonthId);
     const wf = computeWaterfall(availableFunds, S.expenses, S.debts, minOrderStrategy, S.extraTargetId, S.currentMonthId, { expense: paymentsByExpense, debt: paymentsByDebt });
