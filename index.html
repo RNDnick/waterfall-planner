@@ -1,0 +1,1235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="A budget and debt pay-down planner: enter your income and it recommends which bills, minimum payments, and debts get paid first.">
+<title>Waterfall</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<style>
+  [hidden]{ display:none !important; }
+  :root{
+    --bg:#F3F6F4; --surface:#FFFFFF; --surface-2:#EAF0EC; --border:#D7E0DA;
+    --text:#152420; --text-muted:#5C6D66;
+    --accent:#1F6F5C; --accent-2:#154F41; --accent-soft:#DCEEE7;
+    --good:#2E7D4F; --good-soft:#E1F1E6;
+    --warn:#9C6B05; --warn-soft:#FBF0D6;
+    --danger:#B23A2E; --danger-soft:#FBE5E2;
+    --debt:#6E5A9E; --debt-soft:#EDE8F7;
+    --shadow:0 1px 2px rgba(21,36,32,.06),0 4px 16px rgba(21,36,32,.06);
+    --font-display:'Archivo',system-ui,sans-serif;
+    --font-body:'Public Sans',system-ui,sans-serif;
+    --font-mono:'IBM Plex Mono',ui-monospace,'Consolas',monospace;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#101715; --surface:#18211E; --surface-2:#1E2A26; --border:#2B3934;
+      --text:#E7EEEA; --text-muted:#93A69C;
+      --accent:#4FB897; --accent-2:#7ED2B4; --accent-soft:#1C3630;
+      --good:#5FBE82; --good-soft:#1B3324;
+      --warn:#E0B34A; --warn-soft:#3A2E12;
+      --danger:#E2685A; --danger-soft:#3A211D;
+      --debt:#A995D6; --debt-soft:#2A2440;
+      --shadow:0 1px 2px rgba(0,0,0,.3),0 4px 20px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#101715; --surface:#18211E; --surface-2:#1E2A26; --border:#2B3934;
+    --text:#E7EEEA; --text-muted:#93A69C;
+    --accent:#4FB897; --accent-2:#7ED2B4; --accent-soft:#1C3630;
+    --good:#5FBE82; --good-soft:#1B3324;
+    --warn:#E0B34A; --warn-soft:#3A2E12;
+    --danger:#E2685A; --danger-soft:#3A211D;
+    --debt:#A995D6; --debt-soft:#2A2440;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 4px 20px rgba(0,0,0,.35);
+  }
+  *{box-sizing:border-box;}
+  body{
+    background:var(--bg); color:var(--text); font-family:var(--font-body);
+    font-size:15px; line-height:1.5; -webkit-font-smoothing:antialiased;
+  }
+  ::selection{ background:var(--accent-soft); }
+  :focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
+  h1,h2,h3{ font-family:var(--font-display); text-wrap:balance; margin:0; letter-spacing:-0.01em; }
+  .mono{ font-family:var(--font-mono); font-variant-numeric:tabular-nums; }
+  .muted{ color:var(--text-muted); }
+  .wrap{ max-width:1080px; margin:0 auto; padding:28px 24px 80px; }
+
+  /* top bar */
+  .topbar{ display:flex; align-items:baseline; justify-content:space-between; flex-wrap:wrap; gap:10px 24px; margin-bottom:6px; }
+  .brand{ display:flex; align-items:baseline; gap:10px; }
+  .brand h1{ font-size:26px; font-weight:800; }
+  .brand .tag{ font-size:12.5px; color:var(--text-muted); font-family:var(--font-body); }
+  .tabs{ display:flex; gap:4px; background:var(--surface-2); border:1px solid var(--border); border-radius:10px; padding:4px; margin:20px 0 24px; width:fit-content; }
+  .tab-btn{ appearance:none; border:0; background:transparent; color:var(--text-muted); font-family:var(--font-body); font-weight:600; font-size:13.5px; padding:8px 16px; border-radius:7px; cursor:pointer; transition:background .15s,color .15s; }
+  .tab-btn.active{ background:var(--surface); color:var(--accent-2); box-shadow:var(--shadow); }
+  .tab-btn:hover:not(.active){ color:var(--text); }
+
+  /* banner */
+  .banner{ display:flex; gap:12px; align-items:flex-start; padding:13px 16px; border-radius:10px; margin-bottom:20px; font-size:13.5px; }
+  .banner.info{ background:var(--surface-2); border:1px solid var(--border); color:var(--text-muted); }
+  .banner.danger{ background:var(--danger-soft); border:1px solid color-mix(in srgb, var(--danger) 35%, var(--border)); color:var(--danger); }
+  .banner b{ color:inherit; }
+  .banner-dismiss{ margin-left:auto; background:none; border:0; color:inherit; opacity:.6; cursor:pointer; font-size:16px; line-height:1; padding:0 2px; }
+  .banner-dismiss:hover{ opacity:1; }
+
+  /* cards */
+  .grid2{ display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-top:20px; }
+  @media (max-width:760px){ .grid2{ grid-template-columns:1fr; } }
+  .card{ background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:20px; box-shadow:var(--shadow); }
+  .card + .card{ margin-top:20px; }
+  .card-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; gap:10px; }
+  .card-head h2{ font-size:16px; font-weight:700; }
+  .card-head .sub{ font-size:12.5px; color:var(--text-muted); margin-top:2px; font-family:var(--font-body); font-weight:400; }
+
+  /* strategy segmented control */
+  .seg{ display:flex; gap:3px; background:var(--surface-2); border:1px solid var(--border); border-radius:9px; padding:3px; }
+  .seg button{ appearance:none; border:0; background:transparent; padding:7px 12px; border-radius:6px; font-family:var(--font-body); font-weight:600; font-size:12.5px; color:var(--text-muted); cursor:pointer; }
+  .seg button.active{ background:var(--accent); color:#fff; }
+
+  /* tables */
+  table{ width:100%; border-collapse:collapse; }
+  .tbl-wrap{ overflow-x:auto; }
+  th{ text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--text-muted); font-weight:600; padding:0 10px 8px; border-bottom:1px solid var(--border); }
+  td{ padding:9px 10px; border-bottom:1px solid var(--border); font-size:14px; vertical-align:middle; }
+  tr:last-child td{ border-bottom:none; }
+  td.num,th.num{ text-align:right; }
+  .row-name{ font-weight:600; }
+  .row-sample{ color:var(--text-muted); font-weight:500; font-style:italic; font-size:11px; margin-left:6px; }
+  .icon-btn{ appearance:none; background:none; border:0; color:var(--text-muted); cursor:pointer; padding:4px 6px; border-radius:6px; font-size:13px; line-height:1; }
+  .icon-btn:hover{ background:var(--surface-2); color:var(--danger); }
+  .cell-input{ appearance:none; border:1px solid transparent; background:transparent; color:var(--text); font:inherit; width:100%; padding:5px 6px; border-radius:6px; }
+  .cell-input:hover{ background:var(--surface-2); }
+  .cell-input:focus{ background:var(--surface); border-color:var(--accent); outline:none; }
+  .cell-input.num{ text-align:right; font-family:var(--font-mono); width:112px; }
+  .cell-wrap{ display:flex; align-items:center; justify-content:flex-end; gap:2px; }
+  .cell-affix{ color:var(--text-muted); font-size:12px; font-family:var(--font-mono); }
+
+  /* stacked item rows (setup lists) */
+  .item-list{ display:flex; flex-direction:column; gap:10px; }
+  .item-row{ border:1px solid var(--border); border-radius:12px; padding:12px 14px; background:var(--surface); }
+  .item-top{ display:flex; align-items:center; gap:8px; margin-bottom:12px; }
+  .item-top .name-input{ flex:1; min-width:0; font-weight:700; font-size:15.5px; border:1px solid transparent; background:transparent; color:var(--text); padding:6px 8px; border-radius:8px; font-family:var(--font-body); }
+  .item-top .name-input:hover{ background:var(--surface-2); }
+  .item-top .name-input:focus{ background:var(--bg); border-color:var(--accent); outline:none; }
+  .item-fields{ display:flex; gap:22px; flex-wrap:wrap; align-items:flex-end; padding-left:4px; }
+  .field-block{ display:flex; flex-direction:column; gap:5px; }
+  .field-block .fl{ font-size:10.5px; text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted); font-weight:700; }
+  .field-block .cell-wrap{ justify-content:flex-start; }
+  .order-btns{ display:inline-flex; flex-direction:column; gap:1px; vertical-align:middle; }
+  .order-btns button{ appearance:none; border:0; background:none; color:var(--text-muted); cursor:pointer; font-size:9px; line-height:1; padding:1px 3px; }
+  .order-btns button:hover{ color:var(--accent-2); }
+  .order-btns button:disabled{ opacity:.25; cursor:default; }
+
+  .badge{ display:inline-flex; align-items:center; gap:5px; font-size:11.5px; font-weight:600; padding:3px 9px; border-radius:100px; white-space:nowrap; }
+  .badge.essential{ background:var(--accent-soft); color:var(--accent-2); }
+  .badge.discretionary{ background:var(--debt-soft); color:var(--debt); }
+  select.cat-select{ border:1px solid var(--border); background:var(--surface); color:var(--text); border-radius:100px; font-size:11.5px; font-weight:600; padding:3px 8px; font-family:var(--font-body); cursor:pointer; }
+
+  /* forms */
+  .add-row{ display:flex; gap:8px; margin-top:14px; flex-wrap:wrap; align-items:center; }
+  input[type=text],input[type=number],input[type=month],select{
+    background:var(--surface); border:1px solid var(--border); color:var(--text);
+    border-radius:8px; padding:8px 10px; font-family:var(--font-body); font-size:13.5px; min-width:0;
+  }
+  input[type=number]{ font-family:var(--font-mono); }
+  .add-row input[type=text]{ flex:1 1 140px; }
+  .add-row input[type=number]{ width:112px; }
+  label.f{ display:flex; flex-direction:column; gap:4px; font-size:11px; color:var(--text-muted); font-weight:600; text-transform:uppercase; letter-spacing:.03em; }
+
+  button.btn{ appearance:none; border:1px solid var(--accent); background:var(--accent); color:#fff; font-family:var(--font-body); font-weight:700; font-size:13.5px; padding:9px 16px; border-radius:9px; cursor:pointer; transition:background .15s,transform .05s; }
+  button.btn:hover{ background:var(--accent-2); border-color:var(--accent-2); }
+  button.btn:active{ transform:translateY(1px); }
+  button.btn.ghost{ background:transparent; color:var(--accent-2); }
+  button.btn.ghost:hover{ background:var(--accent-soft); }
+  button.btn.sm{ padding:6px 12px; font-size:12.5px; }
+  button.btn:disabled{ opacity:.45; cursor:not-allowed; }
+
+  /* stat tiles */
+  .stats{ display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:22px; }
+  @media (max-width:760px){ .stats{ grid-template-columns:1fr 1fr; } }
+  .stat{ background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:14px 16px; box-shadow:var(--shadow); }
+  .stat .k{ font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted); font-weight:700; margin-bottom:6px; }
+  .stat .v{ font-family:var(--font-mono); font-size:21px; font-weight:600; }
+  .stat.good .v{ color:var(--good); } .stat.danger .v{ color:var(--danger); }
+
+  /* waterfall list */
+  .section-label{ font-size:11.5px; text-transform:uppercase; letter-spacing:.05em; font-weight:700; color:var(--text-muted); margin:20px 0 8px; display:flex; align-items:center; gap:8px; }
+  .section-label .dot{ width:8px; height:8px; border-radius:50%; }
+  .wline{ display:flex; align-items:center; gap:12px; padding:10px 14px; border:1px solid var(--border); border-radius:10px; background:var(--surface); margin-bottom:6px; }
+  .wline .nm{ font-weight:600; flex:1; min-width:0; }
+  .wline .sub2{ font-size:11.5px; color:var(--text-muted); }
+  .wline .amt{ font-family:var(--font-mono); font-weight:600; text-align:right; min-width:78px; }
+  .wline.bill-line{ flex-direction:column; align-items:stretch; gap:10px; }
+  .wline.bill-line.is-paid{ border-color:var(--good); background:var(--good-soft); }
+  .bill-top{ display:flex; align-items:flex-start; gap:10px; }
+  .bill-bottom{ display:flex; align-items:flex-end; gap:16px; flex-wrap:wrap; padding-left:26px; }
+  .bill-bottom .field-block{ gap:4px; }
+  .paid-toggle{ display:flex; align-items:center; gap:6px; font-size:11px; text-transform:uppercase; letter-spacing:.03em; font-weight:700; color:var(--text-muted); cursor:pointer; white-space:nowrap; padding-top:3px; }
+  .paid-toggle input{ width:16px; height:16px; accent-color:var(--good); cursor:pointer; }
+  .chip{ font-size:11px; font-weight:700; padding:3px 9px; border-radius:100px; white-space:nowrap; }
+  .chip.paid{ background:var(--good-soft); color:var(--good); }
+  .chip.partial{ background:var(--warn-soft); color:var(--warn); }
+  .chip.short{ background:var(--danger-soft); color:var(--danger); }
+
+  .extra-box{ border:1.5px dashed var(--accent); background:var(--accent-soft); border-radius:12px; padding:16px; margin-top:20px; }
+  .extra-box .amt-big{ font-family:var(--font-mono); font-size:26px; font-weight:700; color:var(--accent-2); }
+  .rec-line{ font-size:12.5px; color:var(--text-muted); margin-top:3px; }
+  .rec-line b{ color:var(--text); }
+
+  .confirmed-banner{ display:flex; align-items:center; gap:10px; background:var(--good-soft); color:var(--good); border-radius:10px; padding:12px 16px; margin-bottom:18px; font-size:13.5px; font-weight:600; }
+
+  /* payoff plan */
+  .cmp-grid{ display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:22px; }
+  @media (max-width:700px){ .cmp-grid{ grid-template-columns:1fr; } }
+  .cmp-card{ border:1.5px solid var(--border); border-radius:14px; padding:18px; background:var(--surface); box-shadow:var(--shadow); position:relative; }
+  .cmp-card.winner{ border-color:var(--accent); }
+  .cmp-card .win-tag{ position:absolute; top:-11px; right:14px; background:var(--accent); color:#fff; font-size:10.5px; font-weight:700; padding:3px 10px; border-radius:100px; letter-spacing:.03em; }
+  .cmp-card h3{ font-size:15px; margin-bottom:2px; }
+  .cmp-card .desc{ font-size:12px; color:var(--text-muted); margin-bottom:14px; }
+  .cmp-row{ display:flex; justify-content:space-between; padding:7px 0; border-bottom:1px solid var(--border); font-size:13.5px; }
+  .cmp-row:last-child{ border-bottom:none; }
+  .cmp-row .v{ font-family:var(--font-mono); font-weight:600; }
+
+  .chart-card{ padding:18px 20px 8px; }
+  .legend{ display:flex; gap:18px; font-size:12px; color:var(--text-muted); margin-top:6px; }
+  .legend span{ display:inline-flex; align-items:center; gap:6px; }
+  .legend i{ width:10px; height:10px; border-radius:2px; display:inline-block; }
+
+  .hist-empty{ color:var(--text-muted); font-size:13.5px; padding:10px 2px; }
+
+  @media (prefers-reduced-motion:no-preference){
+    .card, .stat, .wline{ transition:box-shadow .15s; }
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap" id="app">
+  <div class="topbar">
+    <div class="brand">
+      <h1>Waterfall</h1>
+      <span class="tag">budget &amp; debt pay-down planner</span>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+
+/* ---------------- storage adapter ---------------- */
+let db = null, usingDb = false;
+const MEM_KEY = 'waterfall_mem_store_v1';
+const mem = JSON.parse(localStorage.getItem(MEM_KEY) || 'null') || { settings:null, expenses:{}, debts:{}, months:{} };
+function memSave(){ try{ localStorage.setItem(MEM_KEY, JSON.stringify(mem)); }catch(e){} }
+function newId(){ return 'x' + Math.random().toString(36).slice(2,10); }
+
+async function getCollection(name){
+  if (usingDb){
+    const snap = await db.collection(name).get();
+    return snap.docs.map(d => ({ id:d.id, ...d.data() }));
+  }
+  return Object.entries(mem[name]||{}).map(([id,v]) => ({ id, ...v }));
+}
+async function setDocv(name, id, data){
+  if (usingDb){ await db.collection(name).doc(id).set(data); return; }
+  mem[name] = mem[name] || {}; mem[name][id] = data; memSave();
+}
+async function addDocv(name, data){
+  if (usingDb){ const ref = await db.collection(name).add(data); return ref.id; }
+  const id = newId(); mem[name] = mem[name] || {}; mem[name][id] = data; memSave(); return id;
+}
+async function deleteDocv(name, id){
+  if (usingDb){ await db.collection(name).doc(id).delete(); return; }
+  if (mem[name]) delete mem[name][id]; memSave();
+}
+async function getSettingsv(){
+  if (usingDb){ const s = await db.doc('settings/main').get(); return s.exists ? s.data() : null; }
+  return mem.settings;
+}
+async function setSettingsv(data){
+  if (usingDb){ await db.doc('settings/main').set(data); return; }
+  mem.settings = data; memSave();
+}
+
+/* ---------------- helpers ---------------- */
+const fmt = new Intl.NumberFormat('en-GB', { style:'currency', currency:'GBP', maximumFractionDigits:0 });
+const fmt2 = new Intl.NumberFormat('en-GB', { style:'currency', currency:'GBP', maximumFractionDigits:2 });
+function money(n){ return fmt.format(Math.round(n||0)); }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function todayMonthId(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); }
+function monthLabel(id){ const [y,m]=id.split('-').map(Number); return new Date(y, m-1, 1).toLocaleDateString('en-GB',{month:'long',year:'numeric'}); }
+function addMonthsToId(id, n){ const [y,m]=id.split('-').map(Number); const d=new Date(y, m-1+n, 1); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); }
+
+const FREQ_MULT = { '4weekly': 13/12, monthly: 1 };
+const FREQ_LABEL = { weekly: '/week', '4weekly': '/4 weeks', monthly: '/month', once: ' (one-off)' };
+const WEEKDAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+function countWeekdayInMonth(monthId, weekday){
+  const [y,m] = monthId.split('-').map(Number);
+  const daysInMonth = new Date(y, m, 0).getDate();
+  let count = 0;
+  for (let d=1; d<=daysInMonth; d++){
+    if (new Date(y, m-1, d).getDay() === weekday) count++;
+  }
+  return count;
+}
+function monthlyAmount(e, monthId){
+  const refMonth = monthId || todayMonthId();
+  if (e.frequency === 'weekly'){
+    const wd = e.weekday!=null ? e.weekday : 5;
+    return e.amount * countWeekdayInMonth(refMonth, wd);
+  }
+  if (e.frequency === 'once'){
+    return (e.onceMonth === refMonth) ? e.amount : 0;
+  }
+  return e.amount * (FREQ_MULT[e.frequency] || 1);
+}
+function freqLabel(f){ return FREQ_LABEL[f] || FREQ_LABEL.monthly; }
+function freqPrefix(f){ return (f==='weekly' || f==='once') ? '' : '≈ '; }
+function weekdayOptions(current){
+  const cur = current!=null ? current : 5;
+  return WEEKDAY_NAMES.map((n,i)=> `<option value="${i}" ${i===cur?'selected':''}>${n}</option>`).join('');
+}
+function ordinal(n){
+  const s = ['th','st','nd','rd'], v = n%100;
+  return n + (s[(v-20)%10] || s[v] || s[0]);
+}
+
+function effectiveApr(d, monthId){
+  if (d.promoEnd && monthId > d.promoEnd) return (d.postApr!=null && d.postApr!=='') ? Number(d.postApr) : d.apr;
+  return d.apr;
+}
+function sortAvalanche(ds, getApr){ getApr = getApr || (d=>d.apr); return [...ds].sort((a,b)=> getApr(b)-getApr(a) || a.balance-b.balance); }
+function sortSnowball(ds, getApr){ getApr = getApr || (d=>d.apr); return [...ds].sort((a,b)=> a.balance-b.balance || getApr(b)-getApr(a)); }
+function sortByStrategy(ds, strat, getApr){ return strat==='snowball' ? sortSnowball(ds, getApr) : sortAvalanche(ds, getApr); }
+
+function buildPaymentOverrides(monthId){
+  const map = {};
+  S.billPayments.filter(p=>p.monthId===monthId).forEach(p=> map[p.expenseId] = p);
+  return map;
+}
+function buildDebtPaymentOverrides(monthId){
+  const map = {};
+  S.debtPayments.filter(p=>p.monthId===monthId).forEach(p=> map[p.debtId] = p);
+  return map;
+}
+
+function computeWaterfall(income, expenses, debts, minOrderStrategy, extraTargetId, monthId, overrides){
+  overrides = overrides || {};
+  const expenseOverrides = overrides.expense || {};
+  const debtOverrides = overrides.debt || {};
+  let remaining = income;
+  const lines = [];
+  const essentials = expenses.filter(e=>e.category==='essential').sort((a,b)=>a.order-b.order);
+  const discretionary = expenses.filter(e=>e.category==='discretionary').sort((a,b)=>a.order-b.order);
+  const live = debts.filter(d=>d.balance>0.005);
+  const getApr = d => effectiveApr(d, monthId);
+  const orderedMin = sortByStrategy(live, minOrderStrategy, getApr);
+
+  for (const e of essentials){
+    const planned = monthlyAmount(e, monthId);
+    const ov = expenseOverrides[e.id];
+    const actualOverride = !!(ov && ov.paid && ov.amountPaid!=null);
+    const due = actualOverride ? ov.amountPaid : planned;
+    const pay = Math.max(0, Math.min(remaining, due));
+    remaining -= pay;
+    lines.push({ section:'essential', id:e.id, name:e.name, due, plannedAmount:planned, actualOverride, paid:pay, freq:e.frequency||'monthly', rawAmount:e.amount, dueDay:e.dueDay||null });
+  }
+  for (const d of orderedMin){
+    const plannedMin = d.minPayment;
+    const dov = debtOverrides[d.id];
+    const debtActualOverride = !!(dov && dov.paid && dov.amountPaid!=null);
+    const due = debtActualOverride ? dov.amountPaid : plannedMin;
+    const pay = Math.max(0, Math.min(remaining, due));
+    remaining -= pay;
+    lines.push({ section:'debtMin', id:d.id, name:d.name, due, plannedAmount:plannedMin, actualOverride:debtActualOverride, paid:pay, apr:getApr(d), balance:d.balance });
+  }
+  for (const x of discretionary){
+    const planned = monthlyAmount(x, monthId);
+    const ov = expenseOverrides[x.id];
+    const actualOverride = !!(ov && ov.paid && ov.amountPaid!=null);
+    const due = actualOverride ? ov.amountPaid : planned;
+    const pay = Math.max(0, Math.min(remaining, due));
+    remaining -= pay;
+    lines.push({ section:'discretionary', id:x.id, name:x.name, due, plannedAmount:planned, actualOverride, paid:pay, freq:x.frequency||'monthly', rawAmount:x.amount, dueDay:x.dueDay||null });
+  }
+  const extra = Math.max(0, remaining);
+  const shortfall = lines.reduce((s,l)=> s + Math.max(0, l.due - l.paid), 0);
+  return { lines, extra, shortfall, liveDebts: live };
+}
+
+function applyMonthToDebts(debts, waterfallLines, extra, extraTargetId, strategy, monthId){
+  const map = new Map(debts.map(d => [d.id, { ...d }]));
+  const getApr = d => effectiveApr(d, monthId);
+  for (const l of waterfallLines.filter(l=>l.section==='debtMin')){
+    const d = map.get(l.id); if(!d) continue;
+    const interest = d.balance * (getApr(d)/100/12);
+    const pay = Math.min(l.paid, d.balance + interest);
+    d.balance = Math.max(0, d.balance + interest - pay);
+  }
+  let remainingExtra = extra;
+  let currentTargetId = extraTargetId;
+  let guard = 0;
+  while (remainingExtra > 0.005 && guard++ < 200){
+    let target = currentTargetId ? map.get(currentTargetId) : null;
+    if (!target || target.balance <= 0.005){
+      const liveNow = [...map.values()].filter(d=>d.balance>0.005);
+      if (liveNow.length===0) break;
+      target = sortByStrategy(liveNow, strategy, getApr)[0];
+    }
+    const pay = Math.min(remainingExtra, target.balance);
+    target.balance -= pay;
+    remainingExtra -= pay;
+    currentTargetId = null;
+    if (pay<=0) break;
+  }
+  return [...map.values()];
+}
+
+function simulatePayoff(initialDebts, monthlyExtra, strategy, capMonths){
+  capMonths = capMonths || 480;
+  const baseMonthId = todayMonthId();
+  let list = initialDebts.filter(d=>d.balance>0.005).map(d=>({...d}));
+  let months=0, totalInterest=0;
+  const timeline=[{ month:0, total: list.reduce((s,d)=>s+d.balance,0) }];
+  if (list.length===0) return { months:0, totalInterest:0, timeline, payoff:true };
+  while (list.some(d=>d.balance>0.005) && months<capMonths){
+    months++;
+    const calMonthId = addMonthsToId(baseMonthId, months);
+    const getApr = d => effectiveApr(d, calMonthId);
+    let mi=0;
+    for (const d of list){
+      if (d.balance<=0.005) continue;
+      const interest = d.balance*(getApr(d)/100/12);
+      mi += interest;
+      const pay = Math.min(d.minPayment, d.balance+interest);
+      d.balance = Math.max(0, d.balance+interest-pay);
+    }
+    let extra = monthlyExtra;
+    let guard=0;
+    while (extra>0.005 && guard++<50){
+      const live = list.filter(d=>d.balance>0.005);
+      if (live.length===0) break;
+      const target = sortByStrategy(live, strategy, getApr)[0];
+      const pay = Math.min(extra, target.balance);
+      target.balance -= pay;
+      extra -= pay;
+      if (pay<=0) break;
+    }
+    totalInterest += mi;
+    timeline.push({ month:months, total: list.reduce((s,d)=>s+d.balance,0) });
+  }
+  return { months, totalInterest, timeline, payoff: !list.some(d=>d.balance>0.005) };
+}
+
+/* ---------------- state ---------------- */
+const S = {
+  strategy: 'compare',
+  expenses: [], debts: [], months: [], incomeSources: [], billPayments: [], debtPayments: [],
+  activeTab: 'setup',
+  currentMonthId: todayMonthId(),
+  currentIncome: '',
+  extraTargetId: null,
+  editingConfirmed: false,
+  assumedExtra: null,
+  bannerDismissed: localStorage.getItem('waterfall_sample_dismissed')==='1',
+};
+
+async function seedIfEmpty(){
+  const settings = await getSettingsv();
+  if (settings && settings.seeded) { S.strategy = settings.strategy || 'compare'; return; }
+  const sampleExpenses = [
+    { name:'Rent', amount:1450, category:'essential', order:1, frequency:'monthly' },
+    { name:'Electricity', amount:110, category:'essential', order:2, frequency:'monthly' },
+    { name:'Groceries', amount:90, category:'essential', order:3, frequency:'weekly', weekday:6 },
+    { name:'Phone', amount:45, category:'essential', order:4, frequency:'4weekly' },
+    { name:'Streaming subscriptions', amount:25, category:'discretionary', order:1, frequency:'monthly' },
+    { name:'Dining out', amount:35, category:'discretionary', order:2, frequency:'weekly', weekday:5 },
+  ];
+  const sampleDebts = [
+    { name:'Credit Card A', balance:3200, apr:24.99, minPayment:90 },
+    { name:'Credit Card B (0% intro)', balance:1100, apr:0, minPayment:35, promoEnd:addMonthsToId(todayMonthId(),4), postApr:22.99 },
+    { name:'Car Loan', balance:8600, apr:6.5, minPayment:260 },
+  ];
+  const sampleIncome = [
+    { name:'Second income', amount:357.05, frequency:'weekly', weekday:5 },
+  ];
+  for (const e of sampleExpenses) await addDocv('expenses', e);
+  for (const d of sampleDebts) await addDocv('debts', d);
+  for (const i of sampleIncome) await addDocv('incomeSources', i);
+  await setSettingsv({ strategy:'compare', seeded:true });
+  S.strategy = 'compare';
+}
+
+async function graduatePromos(){
+  const today = todayMonthId();
+  for (const d of S.debts){
+    if (d.promoEnd && d.promoEnd < today){
+      const newApr = (d.postApr!=null && d.postApr!=='') ? Number(d.postApr) : d.apr;
+      await setDocv('debts', d.id, { name:d.name, balance:d.balance, apr:newApr, minPayment:d.minPayment, promoEnd:null, postApr:null });
+      d.apr = newApr; d.promoEnd = null; d.postApr = null;
+    }
+  }
+}
+
+async function loadAll(){
+  S.expenses = await getCollection('expenses');
+  S.debts = await getCollection('debts');
+  S.months = await getCollection('months');
+  S.incomeSources = await getCollection('incomeSources');
+  S.billPayments = await getCollection('billPayments');
+  S.debtPayments = await getCollection('debtPayments');
+  await graduatePromos();
+}
+
+/* ---------------- rendering ---------------- */
+const app = document.getElementById('app');
+
+function tabsHtml(){
+  const tabs = [['setup','Setup'],['month','This Month'],['payoff','Payoff Plan']];
+  return '<div class="tabs">' + tabs.map(([k,l]) =>
+    `<button class="tab-btn ${S.activeTab===k?'active':''}" onclick="App.setTab('${k}')">${l}</button>`
+  ).join('') + '</div>';
+}
+
+function sampleBanner(){
+  if (S.bannerDismissed) return '';
+  return `<div class="banner info">
+    <div><b>Example data loaded.</b> The bills and debts below are samples so you can see how Waterfall works — edit or delete them in Setup and add your own.</div>
+    <button class="banner-dismiss" onclick="App.dismissBanner()" aria-label="Dismiss">✕</button>
+  </div>`;
+}
+
+function render(){
+  app.innerHTML = `
+    <div class="topbar">
+      <div class="brand"><h1>Waterfall</h1><span class="tag">budget &amp; debt pay-down planner</span></div>
+    </div>
+    ${tabsHtml()}
+    ${sampleBanner()}
+    <div id="tabroot"></div>
+  `;
+  renderTab();
+}
+
+function renderTab(){
+  const root = document.getElementById('tabroot');
+  if (S.activeTab==='setup') root.innerHTML = setupHtml();
+  else if (S.activeTab==='month') { root.innerHTML = monthShellHtml(); recomputeMonth(); }
+  else { root.innerHTML = payoffShellHtml(); recomputePayoff(); }
+}
+
+/* ---- setup tab ---- */
+function setupHtml(){
+  const essentials = S.expenses.filter(e=>e.category==='essential').sort((a,b)=>a.order-b.order);
+  const discretionary = S.expenses.filter(e=>e.category==='discretionary').sort((a,b)=>a.order-b.order);
+  function incomeRows(){
+    return S.incomeSources.map(src => {
+      const isOnce = src.frequency==='once';
+      let preview = '';
+      if (isOnce){
+        preview = `<span class="muted" style="font-size:11px">One-off in ${monthLabel(src.onceMonth || S.currentMonthId)}</span>`;
+      } else if (src.frequency && src.frequency!=='monthly'){
+        preview = `<span class="muted" style="font-size:11px">${freqPrefix(src.frequency)}${money(monthlyAmount(src, S.currentMonthId))} this month</span>`;
+      }
+      return `
+      <div class="item-row">
+        <div class="item-top">
+          <input class="name-input" type="text" value="${esc(src.name)}" onchange="App.updateIncomeSource('${src.id}','name',this.value)">
+          <button class="icon-btn" onclick="App.deleteIncomeSource('${src.id}')" title="Delete">✕</button>
+        </div>
+        <div class="item-fields">
+          <div class="field-block">
+            <span class="fl">Amount</span>
+            <div class="cell-wrap"><span class="cell-affix">£</span><input class="cell-input num" type="number" min="0" step="0.01" value="${src.amount}" onchange="App.updateIncomeSource('${src.id}','amount',this.value)"></div>
+            ${preview}
+          </div>
+          <div class="field-block">
+            <span class="fl">Frequency</span>
+            <select class="cat-select" onchange="App.updateIncomeSource('${src.id}','frequency',this.value)">
+              <option value="weekly" ${src.frequency==='weekly'?'selected':''}>Weekly</option>
+              <option value="4weekly" ${src.frequency==='4weekly'?'selected':''}>Every 4 weeks</option>
+              <option value="monthly" ${(!src.frequency||src.frequency==='monthly')?'selected':''}>Monthly</option>
+              <option value="once" ${isOnce?'selected':''}>One-off</option>
+            </select>
+          </div>
+          ${src.frequency==='weekly' ? `
+          <div class="field-block">
+            <span class="fl">Paid on</span>
+            <select class="cat-select" onchange="App.updateIncomeSource('${src.id}','weekday',this.value)">${weekdayOptions(src.weekday)}</select>
+          </div>` : ''}
+          ${isOnce ? `
+          <div class="field-block">
+            <span class="fl">Month</span>
+            <input class="cell-input" type="month" style="font-size:12.5px;" value="${src.onceMonth || S.currentMonthId}" onchange="App.updateIncomeSource('${src.id}','onceMonth',this.value)">
+          </div>` : ''}
+        </div>
+      </div>`;
+    }).join('');
+  }
+  function expRows(list, cat){
+    return list.map((e,i) => `
+      <div class="item-row">
+        <div class="item-top">
+          <span class="order-btns">
+            <button ${i===0?'disabled':''} onclick="App.moveExpense('${e.id}','${cat}',-1)" title="Higher priority">▲</button>
+            <button ${i===list.length-1?'disabled':''} onclick="App.moveExpense('${e.id}','${cat}',1)" title="Lower priority">▼</button>
+          </span>
+          <input class="name-input" type="text" value="${esc(e.name)}" onchange="App.updateExpense('${e.id}','name',this.value)">
+          <button class="icon-btn" onclick="App.deleteExpense('${e.id}')" title="Delete">✕</button>
+        </div>
+        <div class="item-fields">
+          <div class="field-block">
+            <span class="fl">Amount</span>
+            <div class="cell-wrap"><span class="cell-affix">£</span><input class="cell-input num" type="number" min="0" step="0.01" value="${e.amount}" onchange="App.updateExpense('${e.id}','amount',this.value)"></div>
+            ${(e.frequency && e.frequency!=='monthly') ? `<span class="muted" style="font-size:11px">${freqPrefix(e.frequency)}${money(monthlyAmount(e, S.currentMonthId))} this month</span>` : ''}
+          </div>
+          <div class="field-block">
+            <span class="fl">Frequency</span>
+            <select class="cat-select" onchange="App.updateExpense('${e.id}','frequency',this.value)">
+              <option value="weekly" ${e.frequency==='weekly'?'selected':''}>Weekly</option>
+              <option value="4weekly" ${e.frequency==='4weekly'?'selected':''}>Every 4 weeks</option>
+              <option value="monthly" ${(!e.frequency||e.frequency==='monthly')?'selected':''}>Monthly</option>
+            </select>
+          </div>
+          ${e.frequency==='weekly' ? `
+          <div class="field-block">
+            <span class="fl">Weekday</span>
+            <select class="cat-select" onchange="App.updateExpense('${e.id}','weekday',this.value)">${weekdayOptions(e.weekday)}</select>
+          </div>` : `
+          <div class="field-block">
+            <span class="fl">Due day</span>
+            <input class="cell-input num" style="width:64px" type="number" min="1" max="31" placeholder="—" value="${e.dueDay!=null?e.dueDay:''}" onchange="App.updateExpense('${e.id}','dueDay',this.value)" title="Day of the month this bill must be paid by">
+          </div>`}
+          <div class="field-block">
+            <span class="fl">Type</span>
+            <select class="cat-select" onchange="App.setExpenseCategory('${e.id}', this.value)">
+              <option value="essential" ${e.category==='essential'?'selected':''}>Essential</option>
+              <option value="discretionary" ${e.category==='discretionary'?'selected':''}>Discretionary</option>
+            </select>
+          </div>
+        </div>
+      </div>`).join('');
+  }
+  return `
+  <div class="card">
+    <div class="card-head">
+      <div>
+        <h2>Pay-down strategy</h2>
+        <div class="sub">Decides which debt gets your extra money each month.</div>
+      </div>
+      <div class="seg">
+        <button class="${S.strategy==='avalanche'?'active':''}" onclick="App.setStrategy('avalanche')">Avalanche</button>
+        <button class="${S.strategy==='snowball'?'active':''}" onclick="App.setStrategy('snowball')">Snowball</button>
+        <button class="${S.strategy==='compare'?'active':''}" onclick="App.setStrategy('compare')">Compare both</button>
+      </div>
+    </div>
+    <div class="sub" style="font-size:12.5px">
+      <b>Avalanche</b> targets the highest interest rate first (least total interest).
+      <b>Snowball</b> targets the smallest balance first (fastest early wins).
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <div><h2>Other income</h2><div class="sub">Steady income besides your main salary — counted into every month automatically, no need to enter it.</div></div>
+    </div>
+    <div class="item-list">
+      ${S.incomeSources.length ? '' : '<div class="hist-empty">No recurring income yet — add one below.</div>'}
+      ${incomeRows()}
+    </div>
+    <div class="add-row">
+      <label class="f">Name<input type="text" id="ni-name" placeholder="e.g. Second income"></label>
+      <label class="f">Amount<input type="number" id="ni-amount" min="0" step="0.01" placeholder="0"></label>
+      <label class="f">Frequency
+        <select id="ni-freq">
+          <option value="weekly" selected>Weekly</option>
+          <option value="4weekly">Every 4 weeks</option>
+          <option value="monthly">Monthly</option>
+          <option value="once">One-off</option>
+        </select>
+      </label>
+      <button class="btn sm" style="align-self:flex-end" onclick="App.addIncomeSource()">+ Add income</button>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <div class="card-head">
+        <div><h2>Static bills</h2><div class="sub">Rent, utilities, subscriptions — things that don't change much.</div></div>
+      </div>
+      <div class="item-list">
+        ${essentials.length||discretionary.length ? '' : '<div class="hist-empty">No bills yet — add one below.</div>'}
+        ${expRows(essentials,'essential')}
+        ${expRows(discretionary,'discretionary')}
+      </div>
+      <div class="add-row">
+        <label class="f">Name<input type="text" id="ne-name" placeholder="e.g. Internet"></label>
+        <label class="f">Amount<input type="number" id="ne-amount" min="0" step="0.01" placeholder="0"></label>
+        <label class="f">Frequency
+          <select id="ne-freq">
+            <option value="weekly">Weekly</option>
+            <option value="4weekly">Every 4 weeks</option>
+            <option value="monthly" selected>Monthly</option>
+          </select>
+        </label>
+        <label class="f">Type
+          <select id="ne-cat"><option value="essential">Essential</option><option value="discretionary">Discretionary</option></select>
+        </label>
+        <button class="btn sm" style="align-self:flex-end" onclick="App.addExpense()">+ Add bill</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div><h2>Debts</h2><div class="sub">Cards, loans — anything carrying a balance and interest.</div></div>
+      </div>
+      <div class="item-list">
+        ${S.debts.length ? S.debts.map(d => `
+          <div class="item-row">
+            <div class="item-top">
+              <input class="name-input" type="text" value="${esc(d.name)}" onchange="App.updateDebt('${d.id}','name',this.value)">
+              <button class="icon-btn" onclick="App.deleteDebt('${d.id}')" title="Delete">✕</button>
+            </div>
+            <div class="item-fields">
+              <div class="field-block">
+                <span class="fl">Balance</span>
+                <div class="cell-wrap"><span class="cell-affix">£</span><input class="cell-input num" type="number" min="0" step="0.01" value="${d.balance}" onchange="App.updateDebt('${d.id}','balance',this.value)"></div>
+              </div>
+              <div class="field-block">
+                <span class="fl">APR</span>
+                <div class="cell-wrap"><input class="cell-input num" type="number" min="0" step="0.01" value="${d.apr}" onchange="App.updateDebt('${d.id}','apr',this.value)"><span class="cell-affix">%</span></div>
+              </div>
+              <div class="field-block">
+                <span class="fl">Min payment</span>
+                <div class="cell-wrap"><span class="cell-affix">£</span><input class="cell-input num" type="number" min="0" step="0.01" value="${d.minPayment}" onchange="App.updateDebt('${d.id}','minPayment',this.value)"></div>
+              </div>
+              <div class="field-block">
+                <span class="fl">Intro rate ends</span>
+                <input class="cell-input" type="month" style="font-size:12.5px;" value="${d.promoEnd||''}" onchange="App.updateDebt('${d.id}','promoEnd',this.value)" title="Last month the current APR applies">
+              </div>
+              <div class="field-block">
+                <span class="fl">Then APR</span>
+                <div class="cell-wrap"><input class="cell-input num" style="width:76px;" type="number" min="0" step="0.01" placeholder="—" value="${d.postApr!=null?d.postApr:''}" onchange="App.updateDebt('${d.id}','postApr',this.value)" title="APR after the intro period ends"><span class="cell-affix">%</span></div>
+              </div>
+            </div>
+          </div>`).join('') : '<div class="hist-empty">No debts yet — add one below.</div>'}
+      </div>
+      <div class="sub" style="font-size:12px; margin-top:10px">For a 0% intro-rate card: set APR to 0, then fill in when it ends and the rate it adjusts to — Waterfall switches automatically.</div>
+      <div class="add-row">
+        <label class="f">Name<input type="text" id="nd-name" placeholder="e.g. Visa"></label>
+        <label class="f">Balance<input type="number" id="nd-balance" min="0" step="0.01" placeholder="0"></label>
+        <label class="f">APR %<input type="number" id="nd-apr" min="0" step="0.01" placeholder="0" style="width:90px"></label>
+        <label class="f">Min pmt<input type="number" id="nd-min" min="0" step="0.01" placeholder="0"></label>
+        <button class="btn sm" style="align-self:flex-end" onclick="App.addDebt()">+ Add debt</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ---- this month tab ---- */
+function monthShellHtml(){
+  return `
+  <div class="card" style="margin-bottom:20px">
+    <div class="card-head" style="margin-bottom:0">
+      <div>
+        <h2>${monthLabel(S.currentMonthId)}</h2>
+        <div class="sub">Enter your salary as soon as you know it — any other income in Setup is added in automatically.</div>
+      </div>
+      <div style="display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap">
+        <label class="f">Month<input type="month" id="mi-month" value="${S.currentMonthId}" onchange="App.changeMonth(this.value)"></label>
+        <label class="f">Salary this month
+          <input type="number" id="mi-income" min="0" step="0.01" style="width:140px; font-size:15px" value="${S.currentIncome}" placeholder="0" oninput="App.onIncomeInput(this.value)">
+        </label>
+      </div>
+    </div>
+  </div>
+  <div id="monthResults"></div>`;
+}
+
+function statusChip(l){
+  const short = l.due - l.paid;
+  if (short <= 0.005) return '<span class="chip paid">Paid</span>';
+  if (l.paid > 0.005) return `<span class="chip partial">Partial · short ${money(short)}</span>`;
+  return `<span class="chip short">Short ${money(short)}</span>`;
+}
+
+function recomputeMonth(){
+  const incomeInput = document.getElementById('mi-income');
+  const salary = Math.max(0, parseFloat((incomeInput && incomeInput.value) || S.currentIncome) || 0);
+  S.currentIncome = salary;
+  const otherIncome = S.incomeSources.reduce((s,src)=> s + monthlyAmount(src, S.currentMonthId), 0);
+  const income = salary + otherIncome;
+
+  const existing = S.months.find(m => m.id === S.currentMonthId);
+  const confirmed = existing && !S.editingConfirmed;
+
+  const minOrderStrategy = S.strategy==='snowball' ? 'snowball' : 'avalanche';
+  const getApr = d => effectiveApr(d, S.currentMonthId);
+  const paymentsByExpense = buildPaymentOverrides(S.currentMonthId);
+  const paymentsByDebt = buildDebtPaymentOverrides(S.currentMonthId);
+  const overrides = { expense: paymentsByExpense, debt: paymentsByDebt };
+  const wf = computeWaterfall(income, S.expenses, S.debts, minOrderStrategy, S.extraTargetId, S.currentMonthId, overrides);
+
+  const avalancheTarget = sortAvalanche(wf.liveDebts, getApr)[0] || null;
+  const snowballTarget = sortSnowball(wf.liveDebts, getApr)[0] || null;
+  let defaultTargetId = S.strategy==='snowball' ? (snowballTarget&&snowballTarget.id) : (avalancheTarget&&avalancheTarget.id);
+  if (existing && existing.extraTargetId) defaultTargetId = existing.extraTargetId;
+  if (S.extraTargetId==null) S.extraTargetId = defaultTargetId || null;
+  const wf2 = computeWaterfall(income, S.expenses, S.debts, minOrderStrategy, S.extraTargetId, S.currentMonthId, overrides);
+
+  const previewDebts = applyMonthToDebts(S.debts, wf2.lines, wf2.extra, S.extraTargetId, minOrderStrategy, S.currentMonthId);
+  const afterById = {};
+  previewDebts.forEach(d => afterById[d.id] = d.balance);
+
+  const requiredTotal = wf2.lines.filter(l=>l.section!=='discretionary').reduce((s,l)=>s+l.due,0);
+  const discTotal = wf2.lines.filter(l=>l.section==='discretionary').reduce((s,l)=>s+l.due,0);
+  const target = wf2.liveDebts.find(d=>d.id===S.extraTargetId) || null;
+
+  const el = document.getElementById('monthResults');
+  if (!el) return;
+
+  const statsHtml = `
+    <div class="stats">
+      <div class="stat">
+        <div class="k">Total income</div>
+        <div class="v mono">${money(income)}</div>
+        ${otherIncome>0.5 ? `<div class="muted" style="font-size:11px; margin-top:4px;">${money(salary)} salary + ${money(otherIncome)} other (auto)</div>` : ''}
+      </div>
+      <div class="stat"><div class="k">Bills + min. payments</div><div class="v mono">${money(requiredTotal)}</div></div>
+      <div class="stat"><div class="k">Discretionary</div><div class="v mono">${money(discTotal)}</div></div>
+      <div class="stat ${wf2.extra>0?'good':(wf2.shortfall>0?'danger':'')}">
+        <div class="k">${wf2.shortfall>0.5?'Shortfall':'Extra toward debt'}</div>
+        <div class="v mono">${wf2.shortfall>0.5 ? money(-wf2.shortfall) : money(wf2.extra)}</div>
+      </div>
+    </div>`;
+
+  const shortfallBanner = wf2.shortfall>0.5 ? `
+    <div class="banner danger">
+      <div><b>Income doesn't cover everything this month</b> — ${money(wf2.shortfall)} short. Bills below are paid in priority order; anything short is marked. Reorder priority in Setup if needed.</div>
+    </div>` : '';
+
+  function group(section, label, color){
+    const items = wf2.lines.filter(l=>l.section===section);
+    if (!items.length) return '';
+    const isDebt = section==='debtMin';
+    return `<div class="section-label"><span class="dot" style="background:${color}"></span>${label}</div>` +
+      items.map(l => {
+        const paymentMap = isDebt ? paymentsByDebt : paymentsByExpense;
+        const payment = paymentMap[l.id] || null;
+        const isPaid = payment ? !!payment.paid : false;
+        const actualAmount = payment && payment.amountPaid!=null ? payment.amountPaid : l.plannedAmount;
+
+        let subParts;
+        if (isDebt){
+          const after = afterById[l.id]!=null ? afterById[l.id] : l.balance;
+          subParts = `min. payment · ${l.apr.toFixed(2)}% APR · balance ${money(l.balance)} → ${money(after)}`;
+        } else {
+          const freqPart = (l.freq && l.freq!=='monthly') ? `${money(l.rawAmount)} ${freqLabel(l.freq)} · billed this month as ${freqPrefix(l.freq)}${money(l.plannedAmount)}` : '';
+          const dueDayPart = l.dueDay ? `due on the ${ordinal(l.dueDay)}` : '';
+          subParts = [freqPart, dueDayPart].filter(Boolean).join(' · ');
+        }
+
+        const variance = l.due - l.plannedAmount;
+        const varianceNote = (l.actualOverride && Math.abs(variance)>0.5)
+          ? ` <span style="color:${variance<0?'var(--good)':'var(--danger)'}">(${variance<0?'−':'+'}${money(Math.abs(variance))} vs planned)</span>`
+          : '';
+        const onPaidChange = isDebt ? `App.setDebtPaid('${l.id}', this.checked, ${l.plannedAmount})` : `App.setBillPaid('${l.id}', this.checked, ${l.plannedAmount})`;
+        const onAmountChange = isDebt ? `App.setDebtAmountPaid('${l.id}', this.value)` : `App.setBillAmountPaid('${l.id}', this.value)`;
+
+        return `
+        <div class="wline bill-line ${isPaid?'is-paid':''}">
+          <div class="bill-top">
+            <label class="paid-toggle">
+              <input type="checkbox" ${isPaid?'checked':''} onchange="${onPaidChange}">
+              <span>Paid</span>
+            </label>
+            <div class="nm">${esc(l.name)}${subParts ? `<div class="sub2">${subParts}</div>` : ''}</div>
+            ${statusChip(l)}
+          </div>
+          <div class="bill-bottom">
+            <span class="muted" style="font-size:12px">Planned ${money(l.plannedAmount)}${varianceNote}</span>
+            <div class="field-block">
+              <span class="fl">Actual paid</span>
+              <div class="cell-wrap"><span class="cell-affix">£</span><input class="cell-input num" type="number" min="0" step="0.01" value="${actualAmount}" onchange="${onAmountChange}"></div>
+            </div>
+          </div>
+        </div>`;
+      }).join('');
+  }
+
+  const debtOptions = wf2.liveDebts.length ? wf2.liveDebts.map(d =>
+    `<option value="${d.id}" ${d.id===S.extraTargetId?'selected':''}>${esc(d.name)} — ${money(d.balance)} @ ${getApr(d).toFixed(2)}%</option>`
+  ).join('') : '';
+
+  let extraHtml;
+  if (!wf2.liveDebts.length){
+    extraHtml = `<div class="extra-box"><div class="rec-line">No debts tracked in Setup — ${wf2.extra>0.5?`this month's extra of <b>${money(wf2.extra)}</b> is free to save or roll into next month.`:'nothing left over this month.'}</div></div>`;
+  } else if (wf2.extra <= 0.5){
+    extraHtml = `<div class="extra-box"><div class="rec-line">No extra available this month — bills and minimum payments use all the income.</div></div>`;
+  } else {
+    extraHtml = `<div class="extra-box">
+      <div class="section-label" style="margin-top:0"><span class="dot" style="background:var(--accent)"></span>Extra toward debt</div>
+      <div class="amt-big">${money(wf2.extra)}</div>
+      <div class="rec-line">Apply to
+        <select id="mi-target" onchange="App.setExtraTarget(this.value)" style="font-family:var(--font-mono); font-weight:600;">${debtOptions}</select>
+      </div>
+      ${target ? `<div class="rec-line">This brings <b>${esc(target.name)}</b> from ${money(target.balance)} to ${money(afterById[target.id]!=null?afterById[target.id]:target.balance)}.</div>` : ''}
+      ${S.strategy==='compare' ? `
+        <div class="rec-line">Avalanche would pick <b>${avalancheTarget?esc(avalancheTarget.name):'—'}</b> (highest rate). Snowball would pick <b>${snowballTarget?esc(snowballTarget.name):'—'}</b> (smallest balance).</div>
+      ` : `<div class="rec-line">Recommended by your ${S.strategy} strategy.</div>`}
+    </div>`;
+  }
+
+  const recentMonths = [...S.months].sort((a,b)=> b.id.localeCompare(a.id)).slice(0,3);
+  const historyHtml = recentMonths.length ? `
+    <div class="section-label" style="margin-top:26px">Recent months</div>
+    ${recentMonths.map(m => `
+      <div class="wline">
+        <div class="nm">${monthLabel(m.id)}</div>
+        <div class="sub2" style="flex:1">income ${money(m.income)} · extra ${money(m.extra||0)}${m.extraTargetName?` → ${esc(m.extraTargetName)}`:''}</div>
+      </div>`).join('')}
+  ` : '';
+
+  el.innerHTML = `
+    ${confirmed ? `<div class="confirmed-banner">✓ ${monthLabel(S.currentMonthId)} is confirmed and saved. <button class="btn ghost sm" style="margin-left:auto" onclick="App.editConfirmed()">Recalculate</button></div>` : ''}
+    ${statsHtml}
+    ${shortfallBanner}
+    ${group('essential','Essential bills','var(--accent)')}
+    ${group('debtMin','Debt minimum payments','var(--debt)')}
+    ${group('discretionary','Discretionary','var(--warn)')}
+    ${extraHtml}
+    <div style="margin-top:20px; display:flex; gap:10px;">
+      <button class="btn" ${confirmed?'disabled':''} onclick="App.confirmMonth()">${existing?'Update this month':'Confirm & save this month'}</button>
+    </div>
+    ${historyHtml}
+  `;
+}
+
+/* ---- payoff plan tab ---- */
+function payoffShellHtml(){
+  const lastExtra = [...S.months].sort((a,b)=>b.id.localeCompare(a.id)).find(m=>m.extra>0);
+  if (S.assumedExtra==null) S.assumedExtra = lastExtra ? Math.round(lastExtra.extra) : 0;
+  const totalBalance = S.debts.reduce((s,d)=>s+d.balance,0);
+  return `
+  <div class="stats" style="grid-template-columns:1fr 1fr">
+    <div class="stat"><div class="k">Total debt balance</div><div class="v mono">${money(totalBalance)}</div></div>
+    <div class="stat">
+      <div class="k">Assumed extra / month</div>
+      <div><input type="number" id="pp-extra" min="0" step="1" value="${S.assumedExtra}" style="width:120px; font-size:18px; font-weight:600;" oninput="App.onAssumedExtraInput(this.value)"></div>
+    </div>
+  </div>
+  <div id="payoffResults"></div>`;
+}
+
+function buildTimelineSvg(timelineA, timelineB){
+  const W=640,H=220,padL=54,padR=16,padT=14,padB=28;
+  const maxMonth = Math.max(timelineA[timelineA.length-1].month, timelineB[timelineB.length-1].month, 1);
+  const maxVal = Math.max(timelineA[0].total, timelineB[0].total, 1);
+  const x = m => padL + (m/maxMonth) * (W-padL-padR);
+  const y = v => H-padB - (v/maxVal) * (H-padT-padB);
+  function path(tl){
+    return tl.map((p,i) => (i===0?'M':'L') + x(p.month).toFixed(1) + ',' + y(p.total).toFixed(1)).join(' ');
+  }
+  const yTicks = 4;
+  let gridlines='', yLabels='';
+  for(let i=0;i<=yTicks;i++){
+    const v = maxVal * i/yTicks;
+    const yy = y(v);
+    gridlines += `<line x1="${padL}" y1="${yy.toFixed(1)}" x2="${W-padR}" y2="${yy.toFixed(1)}" stroke="var(--border)" stroke-width="1"/>`;
+    yLabels += `<text x="${padL-8}" y="${(yy+4).toFixed(1)}" text-anchor="end" font-size="10.5" fill="var(--text-muted)" font-family="var(--font-mono)">${money(v)}</text>`;
+  }
+  const useMonths = maxMonth <= 15;
+  const step = useMonths ? (maxMonth>8?3:1) : (maxMonth>60?24:(maxMonth>24?12:6));
+  let xLabels='';
+  for(let m=0;m<=maxMonth;m+=step){
+    const label = useMonths ? `${m}mo` : `${Math.round(m/12)}y`;
+    xLabels += `<text x="${x(m).toFixed(1)}" y="${H-8}" text-anchor="middle" font-size="10.5" fill="var(--text-muted)" font-family="var(--font-mono)">${label}</text>`;
+  }
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="Projected debt balance over time">
+    ${gridlines}
+    <path d="${path(timelineA)}" fill="none" stroke="var(--accent)" stroke-width="2.5"/>
+    <path d="${path(timelineB)}" fill="none" stroke="var(--debt)" stroke-width="2.5" stroke-dasharray="5,4"/>
+    ${yLabels}${xLabels}
+    <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${H-padB}" stroke="var(--border)" stroke-width="1"/>
+  </svg>`;
+}
+
+function recomputePayoff(){
+  const extraInput = document.getElementById('pp-extra');
+  const extra = Math.max(0, parseFloat((extraInput && extraInput.value) || S.assumedExtra) || 0);
+  S.assumedExtra = extra;
+  const el = document.getElementById('payoffResults');
+  if (!el) return;
+
+  if (!S.debts.length){
+    el.innerHTML = `<div class="card"><div class="hist-empty">No debts tracked — add one in Setup to see a payoff projection.</div></div>`;
+    return;
+  }
+
+  const av = simulatePayoff(S.debts, extra, 'avalanche');
+  const sn = simulatePayoff(S.debts, extra, 'snowball');
+  const avWins = av.totalInterest <= sn.totalInterest;
+
+  function cmpCard(name, res, isWinner, other){
+    const payoffDate = res.payoff ? addMonthsToId(todayMonthId(), res.months) : null;
+    return `<div class="cmp-card ${isWinner?'winner':''}">
+      ${isWinner ? '<div class="win-tag">Less interest</div>' : ''}
+      <h3>${name}</h3>
+      <div class="desc">${name==='Avalanche' ? 'Highest interest rate first' : 'Smallest balance first'}</div>
+      <div class="cmp-row"><span>Debt-free in</span><span class="v">${res.payoff ? res.months+' months' : '40+ years'}</span></div>
+      <div class="cmp-row"><span>Estimated payoff</span><span class="v">${payoffDate ? monthLabel(payoffDate) : '—'}</span></div>
+      <div class="cmp-row"><span>Total interest paid</span><span class="v">${money(res.totalInterest)}</span></div>
+      ${other ? `<div class="cmp-row"><span>Vs. other strategy</span><span class="v" style="color:${res.totalInterest<other.totalInterest?'var(--good)':'var(--text-muted)'}">${res.totalInterest<other.totalInterest? 'saves '+money(other.totalInterest-res.totalInterest) : '—'}</span></div>` : ''}
+    </div>`;
+  }
+
+  const warn = (!av.payoff || !sn.payoff) ? `<div class="banner danger" style="margin-top:16px"><div><b>At ${money(extra)}/month extra, at least one strategy won't pay off debt within 40 years.</b> Increase the assumed extra above, or raise minimum payments in Setup.</div></div>` : '';
+
+  el.innerHTML = `
+    <div class="cmp-grid">
+      ${cmpCard('Avalanche', av, avWins && av.totalInterest<sn.totalInterest, sn)}
+      ${cmpCard('Snowball', sn, !avWins && sn.totalInterest<av.totalInterest, av)}
+    </div>
+    <div class="card chart-card">
+      <div class="card-head" style="margin-bottom:6px"><h2>Projected balance over time</h2></div>
+      ${buildTimelineSvg(av.timeline, sn.timeline)}
+      <div class="legend">
+        <span><i style="background:var(--accent)"></i>Avalanche</span>
+        <span><i style="background:var(--debt)"></i>Snowball</span>
+      </div>
+    </div>
+    ${warn}
+    ${historyTableHtml()}
+  `;
+}
+
+function debtSnapshotRows(m){
+  if (!m.debtSnapshots || !m.debtSnapshots.length){
+    return '<div class="hist-empty">No per-debt detail recorded for this month.</div>';
+  }
+  return `<div style="display:flex; flex-direction:column; gap:6px;">` + m.debtSnapshots.map(s => {
+    const diff = s.before - s.after;
+    const chip = diff>0.5 ? `<span class="chip paid">−${money(diff)}</span>` : (diff<-0.5 ? `<span class="chip short">+${money(-diff)}</span>` : '<span class="chip partial">No change</span>');
+    return `<div class="wline" style="margin-bottom:0;">
+      <div class="nm">${esc(s.name)}</div>
+      <div class="amt">${money(s.before)} → ${money(s.after)}</div>
+      ${chip}
+    </div>`;
+  }).join('') + `</div>`;
+}
+
+function historyTableHtml(){
+  const rows = [...S.months].sort((a,b)=>b.id.localeCompare(a.id));
+  if (!rows.length) return '';
+  return `<div class="card" style="margin-top:20px">
+    <div class="card-head"><h2>Confirmed months</h2></div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th></th><th>Month</th><th class="num">Income</th><th class="num">Bills+min</th><th class="num">Extra</th><th>Applied to</th></tr></thead>
+      <tbody>
+        ${rows.map(m => `
+        <tr>
+          <td><button class="icon-btn" onclick="const r=document.getElementById('hist-${m.id}'); r.hidden=!r.hidden; this.textContent=r.hidden?'▸':'▾';" title="Show debt balances">▸</button></td>
+          <td>${monthLabel(m.id)}</td>
+          <td class="num mono">${money(m.income)}</td>
+          <td class="num mono">${money(m.requiredTotal||0)}</td>
+          <td class="num mono">${money(m.extra||0)}</td>
+          <td>${m.extraTargetName ? esc(m.extraTargetName) : '—'}</td>
+        </tr>
+        <tr id="hist-${m.id}" hidden>
+          <td></td>
+          <td colspan="5" style="padding-top:2px; padding-bottom:14px;">${debtSnapshotRows(m)}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table></div>
+  </div>`;
+}
+
+/* ---------------- actions ---------------- */
+window.App = {
+  setTab(t){ S.activeTab=t; S.editingConfirmed=false; render(); },
+  dismissBanner(){ S.bannerDismissed=true; try{localStorage.setItem('waterfall_sample_dismissed','1');}catch(e){} render(); },
+
+  async setStrategy(s){ S.strategy=s; S.extraTargetId=null; await setSettingsv({ strategy:s, seeded:true }); render(); },
+
+  async addExpense(){
+    const name = document.getElementById('ne-name').value.trim();
+    const amount = parseFloat(document.getElementById('ne-amount').value);
+    const category = document.getElementById('ne-cat').value;
+    const frequency = document.getElementById('ne-freq').value;
+    if (!name || !(amount>=0)) return;
+    const sameCategory = S.expenses.filter(e=>e.category===category);
+    const order = sameCategory.length ? Math.max(...sameCategory.map(e=>e.order))+1 : 1;
+    await addDocv('expenses', { name, amount, category, order, frequency, weekday:5 });
+    await loadAll(); renderTab();
+  },
+  async deleteExpense(id){ await deleteDocv('expenses', id); await loadAll(); renderTab(); },
+  async updateExpense(id, field, raw){
+    const e = S.expenses.find(x=>x.id===id); if(!e) return;
+    let value;
+    if (field==='amount'){ value = parseFloat(raw); if (!(value>=0)) { renderTab(); return; } }
+    else if (field==='weekday'){ value = parseInt(raw,10); }
+    else if (field==='dueDay'){ value = raw==='' ? null : parseInt(raw,10); if (value!=null && !(value>=1 && value<=31)) { renderTab(); return; } }
+    else { value = raw.trim(); if (field==='name' && !value) { renderTab(); return; } }
+    await setDocv('expenses', id, { name:e.name, amount:e.amount, category:e.category, order:e.order, frequency:e.frequency||'monthly', weekday:(e.weekday!=null?e.weekday:5), dueDay:(e.dueDay!=null?e.dueDay:null), [field]:value });
+    await loadAll(); renderTab();
+  },
+  async setExpenseCategory(id, category){
+    const e = S.expenses.find(x=>x.id===id); if(!e) return;
+    const sameCategory = S.expenses.filter(x=>x.category===category && x.id!==id);
+    const order = sameCategory.length ? Math.max(...sameCategory.map(x=>x.order))+1 : 1;
+    await setDocv('expenses', id, { name:e.name, amount:e.amount, category, order, frequency:e.frequency||'monthly', weekday:(e.weekday!=null?e.weekday:5), dueDay:(e.dueDay!=null?e.dueDay:null) });
+    await loadAll(); renderTab();
+  },
+  async moveExpense(id, category, dir){
+    const list = S.expenses.filter(e=>e.category===category).sort((a,b)=>a.order-b.order);
+    const i = list.findIndex(e=>e.id===id);
+    const j = i+dir;
+    if (j<0 || j>=list.length) return;
+    const a=list[i], b=list[j];
+    await setDocv('expenses', a.id, { name:a.name, amount:a.amount, category:a.category, order:b.order, frequency:a.frequency||'monthly', weekday:(a.weekday!=null?a.weekday:5), dueDay:(a.dueDay!=null?a.dueDay:null) });
+    await setDocv('expenses', b.id, { name:b.name, amount:b.amount, category:b.category, order:a.order, frequency:b.frequency||'monthly', weekday:(b.weekday!=null?b.weekday:5), dueDay:(b.dueDay!=null?b.dueDay:null) });
+    await loadAll(); renderTab();
+  },
+
+  async addDebt(){
+    const name = document.getElementById('nd-name').value.trim();
+    const balance = parseFloat(document.getElementById('nd-balance').value);
+    const apr = parseFloat(document.getElementById('nd-apr').value);
+    const minPayment = parseFloat(document.getElementById('nd-min').value);
+    if (!name || !(balance>=0) || !(apr>=0) || !(minPayment>=0)) return;
+    await addDocv('debts', { name, balance, apr, minPayment });
+    await loadAll(); renderTab();
+  },
+  async deleteDebt(id){ await deleteDocv('debts', id); if(S.extraTargetId===id) S.extraTargetId=null; await loadAll(); renderTab(); },
+  async updateDebt(id, field, raw){
+    const d = S.debts.find(x=>x.id===id); if(!d) return;
+    let value;
+    if (field==='name'){ value = raw.trim(); if (!value) { renderTab(); return; } }
+    else if (field==='promoEnd'){ value = raw || null; }
+    else if (field==='postApr'){ value = raw==='' ? null : parseFloat(raw); if (value!=null && !(value>=0)) { renderTab(); return; } }
+    else { value = parseFloat(raw); if (!(value>=0)) { renderTab(); return; } }
+    await setDocv('debts', id, { name:d.name, balance:d.balance, apr:d.apr, minPayment:d.minPayment, promoEnd:d.promoEnd||null, postApr:(d.postApr!=null?d.postApr:null), [field]:value });
+    await loadAll(); renderTab();
+  },
+
+  async addIncomeSource(){
+    const name = document.getElementById('ni-name').value.trim();
+    const amount = parseFloat(document.getElementById('ni-amount').value);
+    const frequency = document.getElementById('ni-freq').value;
+    if (!name || !(amount>=0)) return;
+    await addDocv('incomeSources', { name, amount, frequency, weekday:5, onceMonth:S.currentMonthId });
+    await loadAll(); renderTab();
+  },
+  async deleteIncomeSource(id){ await deleteDocv('incomeSources', id); await loadAll(); renderTab(); },
+  async updateIncomeSource(id, field, raw){
+    const src = S.incomeSources.find(x=>x.id===id); if(!src) return;
+    let value;
+    if (field==='amount'){ value = parseFloat(raw); if (!(value>=0)) { renderTab(); return; } }
+    else if (field==='weekday'){ value = parseInt(raw,10); }
+    else if (field==='onceMonth'){ value = raw || S.currentMonthId; }
+    else { value = raw.trim(); if (field==='name' && !value) { renderTab(); return; } }
+    await setDocv('incomeSources', id, { name:src.name, amount:src.amount, frequency:src.frequency||'monthly', weekday:(src.weekday!=null?src.weekday:5), onceMonth:(src.onceMonth||S.currentMonthId), [field]:value });
+    await loadAll(); renderTab();
+  },
+
+  onIncomeInput(v){ S.currentIncome = v; recomputeMonth(); },
+  setExtraTarget(id){ S.extraTargetId = id; recomputeMonth(); },
+
+  async setBillPaid(expenseId, checked, dueAmount){
+    const docId = `${S.currentMonthId}_${expenseId}`;
+    const existing = S.billPayments.find(p=>p.id===docId);
+    const amountPaid = existing && existing.amountPaid!=null ? existing.amountPaid : dueAmount;
+    await setDocv('billPayments', docId, { monthId:S.currentMonthId, expenseId, paid:checked, amountPaid });
+    await loadAll(); renderTab();
+  },
+  async setBillAmountPaid(expenseId, raw){
+    const value = parseFloat(raw);
+    if (!(value>=0)) { renderTab(); return; }
+    const docId = `${S.currentMonthId}_${expenseId}`;
+    const existing = S.billPayments.find(p=>p.id===docId);
+    const paid = existing ? existing.paid : false;
+    await setDocv('billPayments', docId, { monthId:S.currentMonthId, expenseId, paid, amountPaid:value });
+    await loadAll(); renderTab();
+  },
+
+  async setDebtPaid(debtId, checked, dueAmount){
+    const docId = `${S.currentMonthId}_${debtId}`;
+    const existing = S.debtPayments.find(p=>p.id===docId);
+    const amountPaid = existing && existing.amountPaid!=null ? existing.amountPaid : dueAmount;
+    await setDocv('debtPayments', docId, { monthId:S.currentMonthId, debtId, paid:checked, amountPaid });
+    await loadAll(); renderTab();
+  },
+  async setDebtAmountPaid(debtId, raw){
+    const value = parseFloat(raw);
+    if (!(value>=0)) { renderTab(); return; }
+    const docId = `${S.currentMonthId}_${debtId}`;
+    const existing = S.debtPayments.find(p=>p.id===docId);
+    const paid = existing ? existing.paid : false;
+    await setDocv('debtPayments', docId, { monthId:S.currentMonthId, debtId, paid, amountPaid:value });
+    await loadAll(); renderTab();
+  },
+  changeMonth(id){
+    S.currentMonthId = id;
+    const existing = S.months.find(m=>m.id===id);
+    S.currentIncome = existing ? (existing.salary!=null ? existing.salary : existing.income) : '';
+    S.extraTargetId = existing ? existing.extraTargetId : null;
+    S.editingConfirmed = false;
+    renderTab();
+  },
+  editConfirmed(){ S.editingConfirmed = true; recomputeMonth(); },
+
+  async confirmMonth(){
+    const minOrderStrategy = S.strategy==='snowball' ? 'snowball' : 'avalanche';
+    const otherIncome = S.incomeSources.reduce((s,src)=> s + monthlyAmount(src, S.currentMonthId), 0);
+    const totalIncome = S.currentIncome + otherIncome;
+    const paymentsByExpense = buildPaymentOverrides(S.currentMonthId);
+    const paymentsByDebt = buildDebtPaymentOverrides(S.currentMonthId);
+    const wf = computeWaterfall(totalIncome, S.expenses, S.debts, minOrderStrategy, S.extraTargetId, S.currentMonthId, { expense: paymentsByExpense, debt: paymentsByDebt });
+    const requiredTotal = wf.lines.filter(l=>l.section!=='discretionary').reduce((s,l)=>s+l.due,0);
+    const targetDebt = wf.liveDebts.find(d=>d.id===S.extraTargetId) || null;
+    const updatedDebts = applyMonthToDebts(S.debts, wf.lines, wf.extra, S.extraTargetId, minOrderStrategy, S.currentMonthId);
+    const debtSnapshots = wf.liveDebts.map(d => {
+      const updated = updatedDebts.find(u=>u.id===d.id);
+      return { id:d.id, name:d.name, before:Math.round(d.balance*100)/100, after: updated ? Math.round(updated.balance*100)/100 : Math.round(d.balance*100)/100 };
+    });
+    for (const d of updatedDebts){
+      const orig = S.debts.find(o=>o.id===d.id);
+      if (orig && Math.abs(orig.balance-d.balance) > 0.001){
+        await setDocv('debts', d.id, { name:d.name, balance:Math.round(d.balance*100)/100, apr:d.apr, minPayment:d.minPayment, promoEnd:orig.promoEnd||null, postApr:(orig.postApr!=null?orig.postApr:null) });
+      }
+    }
+    await setDocv('months', S.currentMonthId, {
+      income: totalIncome,
+      salary: S.currentIncome,
+      otherIncome,
+      requiredTotal,
+      extra: wf.extra,
+      extraTargetId: S.extraTargetId,
+      extraTargetName: targetDebt ? targetDebt.name : null,
+      strategy: S.strategy,
+      debtSnapshots,
+      confirmedAt: new Date().toISOString(),
+    });
+    S.editingConfirmed = false;
+    S.assumedExtra = null;
+    await loadAll();
+    renderTab();
+  },
+
+  onAssumedExtraInput(v){ S.assumedExtra = v; recomputePayoff(); },
+};
+
+/* ---------------- init ---------------- */
+(async function init(){
+  try { db = (window.claude && window.claude.use) ? await window.claude.use('db') : null; } catch(e){ db = null; }
+  usingDb = !!db;
+  await seedIfEmpty();
+  await loadAll();
+  render();
+})();
+
+})();
+</script>
+</body>
+</html>
