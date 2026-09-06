@@ -381,7 +381,7 @@ function computeWaterfall(income, expenses, debts, minOrderStrategy, extraTarget
   return { lines, extra, shortfall, liveDebts: live };
 }
 
-function applyMonthToDebts(debts, waterfallLines, extra, extraTargetId, strategy, monthId){
+function applyMinPayments(debts, waterfallLines, monthId){
   const map = new Map(debts.map(d => [d.id, { ...d }]));
   const getApr = d => effectiveApr(d, monthId);
   for (const l of waterfallLines.filter(l=>l.section==='debtMin')){
@@ -390,6 +390,12 @@ function applyMonthToDebts(debts, waterfallLines, extra, extraTargetId, strategy
     const pay = Math.min(l.paid, d.balance + interest);
     d.balance = Math.max(0, d.balance + interest - pay);
   }
+  return map;
+}
+
+function applyExtraPayment(debtMap, extra, extraTargetId, strategy, monthId){
+  const map = new Map([...debtMap].map(([id,d]) => [id, { ...d }]));
+  const getApr = d => effectiveApr(d, monthId);
   let remainingExtra = extra;
   let currentTargetId = extraTargetId;
   let guard = 0;
@@ -406,7 +412,13 @@ function applyMonthToDebts(debts, waterfallLines, extra, extraTargetId, strategy
     currentTargetId = null;
     if (pay<=0) break;
   }
-  return [...map.values()];
+  return map;
+}
+
+function applyMonthToDebts(debts, waterfallLines, extra, extraTargetId, strategy, monthId){
+  const afterMin = applyMinPayments(debts, waterfallLines, monthId);
+  const afterExtra = applyExtraPayment(afterMin, extra, extraTargetId, strategy, monthId);
+  return [...afterExtra.values()];
 }
 
 function simulatePayoff(initialDebts, monthlyExtra, strategy, capMonths){
@@ -845,9 +857,13 @@ function recomputeMonth(){
   if (S.extraTargetId==null) S.extraTargetId = defaultTargetId || null;
   const wf2 = computeWaterfall(availableFunds, S.expenses, S.debts, minOrderStrategy, S.extraTargetId, S.currentMonthId, overrides);
 
-  const previewDebts = applyMonthToDebts(S.debts, wf2.lines, wf2.extra, S.extraTargetId, minOrderStrategy, S.currentMonthId);
+  const afterMinMap = applyMinPayments(S.debts, wf2.lines, S.currentMonthId);
+  const afterMinById = {};
+  afterMinMap.forEach(d => afterMinById[d.id] = d.balance);
+
+  const afterExtraMap = applyExtraPayment(afterMinMap, wf2.extra, S.extraTargetId, minOrderStrategy, S.currentMonthId);
   const afterById = {};
-  previewDebts.forEach(d => afterById[d.id] = d.balance);
+  afterExtraMap.forEach(d => afterById[d.id] = d.balance);
 
   const requiredTotal = wf2.lines.filter(l=>l.section!=='discretionary' && !l.isPaid).reduce((s,l)=>s+l.due,0);
   const discTotal = wf2.lines.filter(l=>l.section==='discretionary' && !l.isPaid).reduce((s,l)=>s+l.due,0);
@@ -898,8 +914,9 @@ function recomputeMonth(){
 
         let subParts;
         if (isDebt){
-          const after = afterById[l.id]!=null ? afterById[l.id] : l.balance;
-          subParts = `min. payment · ${l.apr.toFixed(2)}% APR · balance ${money(l.balance)} → ${money(after)}`;
+          const after = afterMinById[l.id]!=null ? afterMinById[l.id] : l.balance;
+          const extraNote = (target && target.id===l.id && wf2.extra>0.5) ? ` · this month's extra also goes here (see below)` : '';
+          subParts = `min. payment · ${l.apr.toFixed(2)}% APR · balance ${money(l.balance)} → ${money(after)}${extraNote}`;
         } else {
           const freqPart = (l.freq && l.freq!=='monthly') ? `${money(l.rawAmount)} ${freqLabel(l.freq)} · billed this month as ${freqPrefix(l.freq)}${money(l.plannedAmount)}` : '';
           const dueDayPart = l.dueDay ? `due on the ${ordinal(l.dueDay)}` : '';
