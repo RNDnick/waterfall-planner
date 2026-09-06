@@ -1060,6 +1060,7 @@ function recomputeMonth(){
     ${confirmed ? `<div class="confirmed-banner">✓ ${monthLabel(S.currentMonthId)} is confirmed and saved. <button class="btn ghost sm" style="margin-left:auto" onclick="App.editConfirmed()">Recalculate</button></div>` : ''}
     ${statsHtml}
     ${shortfallBanner}
+    ${extraHtml}
     ${group('essential','Essential bills','var(--accent)')}
     <div class="section-label"><span class="dot" style="background:var(--danger)"></span>One-off bills</div>
     ${oneOffThisMonth.length ? group('oneOff','','var(--danger)') : '<div class="hist-empty">No one-off bills this month — a repair, a one-time expense.</div>'}
@@ -1070,7 +1071,6 @@ function recomputeMonth(){
     </div>
     ${group('debtMin','Debt minimum payments','var(--debt)')}
     ${group('discretionary','Discretionary','var(--warn)')}
-    ${extraHtml}
     <div style="margin-top:20px; display:flex; gap:10px;">
       <button class="btn" ${confirmed?'disabled':''} onclick="App.confirmMonth()">${existing?'Update this month':'Confirm & save this month'}</button>
     </div>
