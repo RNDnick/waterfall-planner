@@ -334,8 +334,9 @@ function buildDebtPaymentOverrides(monthId){
   return map;
 }
 
-function computeWaterfall(income, expenses, debts, minOrderStrategy, extraTargetId, monthId, overrides){
+function computeWaterfall(income, expenses, debts, minOrderStrategy, extraTargetId, monthId, overrides, oneOffBills){
   overrides = overrides || {};
+  oneOffBills = oneOffBills || [];
   const expenseOverrides = overrides.expense || {};
   const debtOverrides = overrides.debt || {};
   let remaining = income;
@@ -355,6 +356,15 @@ function computeWaterfall(income, expenses, debts, minOrderStrategy, extraTarget
     if (isPaid){ due = actualAmount; pay = actualAmount; }
     else { due = planned; pay = Math.max(0, Math.min(remaining, due)); remaining -= pay; }
     lines.push({ section:'essential', id:e.id, name:e.name, due, plannedAmount:planned, actualOverride:isPaid, isPaid, paid:pay, freq:e.frequency||'monthly', rawAmount:e.amount, dueDay:e.dueDay||null });
+  }
+  for (const b of oneOffBills){
+    const planned = b.amount;
+    const isPaid = !!b.paid;
+    const actualAmount = b.actualAmount!=null ? b.actualAmount : planned;
+    let due, pay;
+    if (isPaid){ due = actualAmount; pay = actualAmount; }
+    else { due = planned; pay = Math.max(0, Math.min(remaining, due)); remaining -= pay; }
+    lines.push({ section:'oneOff', id:b.id, name:b.name, due, plannedAmount:planned, actualOverride:isPaid, isPaid, paid:pay });
   }
   for (const d of orderedMin){
     const plannedMin = d.minPayment;
@@ -460,7 +470,7 @@ function simulatePayoff(initialDebts, monthlyExtra, strategy, capMonths){
 /* ---------------- state ---------------- */
 const S = {
   strategy: 'compare',
-  expenses: [], debts: [], months: [], incomeSources: [], billPayments: [], debtPayments: [],
+  expenses: [], debts: [], months: [], incomeSources: [], billPayments: [], debtPayments: [], oneOffBills: [],
   activeTab: 'setup',
   currentMonthId: todayMonthId(),
   currentIncome: '',
@@ -515,6 +525,7 @@ async function loadAll(){
   S.incomeSources = await getCollection('incomeSources');
   S.billPayments = await getCollection('billPayments');
   S.debtPayments = await getCollection('debtPayments');
+  S.oneOffBills = await getCollection('oneOffBills');
   await graduatePromos();
 }
 
@@ -848,14 +859,15 @@ function recomputeMonth(){
   const paymentsByExpense = buildPaymentOverrides(S.currentMonthId);
   const paymentsByDebt = buildDebtPaymentOverrides(S.currentMonthId);
   const overrides = { expense: paymentsByExpense, debt: paymentsByDebt };
-  const wf = computeWaterfall(availableFunds, S.expenses, S.debts, minOrderStrategy, S.extraTargetId, S.currentMonthId, overrides);
+  const oneOffThisMonth = S.oneOffBills.filter(b=>b.monthId===S.currentMonthId);
+  const wf = computeWaterfall(availableFunds, S.expenses, S.debts, minOrderStrategy, S.extraTargetId, S.currentMonthId, overrides, oneOffThisMonth);
 
   const avalancheTarget = sortAvalanche(wf.liveDebts, getApr)[0] || null;
   const snowballTarget = sortSnowball(wf.liveDebts, getApr)[0] || null;
   let defaultTargetId = S.strategy==='snowball' ? (snowballTarget&&snowballTarget.id) : (avalancheTarget&&avalancheTarget.id);
   if (existing && existing.extraTargetId) defaultTargetId = existing.extraTargetId;
   if (S.extraTargetId==null) S.extraTargetId = defaultTargetId || null;
-  const wf2 = computeWaterfall(availableFunds, S.expenses, S.debts, minOrderStrategy, S.extraTargetId, S.currentMonthId, overrides);
+  const wf2 = computeWaterfall(availableFunds, S.expenses, S.debts, minOrderStrategy, S.extraTargetId, S.currentMonthId, overrides, oneOffThisMonth);
 
   const afterMinMap = applyMinPayments(S.debts, wf2.lines, S.currentMonthId);
   const afterMinById = {};
@@ -905,18 +917,29 @@ function recomputeMonth(){
     const items = wf2.lines.filter(l=>l.section===section);
     if (!items.length) return '';
     const isDebt = section==='debtMin';
-    return `<div class="section-label"><span class="dot" style="background:${color}"></span>${label}</div>` +
+    const isOneOff = section==='oneOff';
+    const labelHtml = label ? `<div class="section-label"><span class="dot" style="background:${color}"></span>${label}</div>` : '';
+    return labelHtml +
       items.map(l => {
-        const paymentMap = isDebt ? paymentsByDebt : paymentsByExpense;
-        const payment = paymentMap[l.id] || null;
-        const isPaid = payment ? !!payment.paid : false;
-        const actualAmount = payment && payment.amountPaid!=null ? payment.amountPaid : l.plannedAmount;
+        let isPaid, actualAmount;
+        if (isOneOff){
+          const raw = S.oneOffBills.find(b=>b.id===l.id);
+          isPaid = !!(raw && raw.paid);
+          actualAmount = raw && raw.actualAmount!=null ? raw.actualAmount : l.plannedAmount;
+        } else {
+          const paymentMap = isDebt ? paymentsByDebt : paymentsByExpense;
+          const payment = paymentMap[l.id] || null;
+          isPaid = payment ? !!payment.paid : false;
+          actualAmount = payment && payment.amountPaid!=null ? payment.amountPaid : l.plannedAmount;
+        }
 
         let subParts;
         if (isDebt){
           const after = afterMinById[l.id]!=null ? afterMinById[l.id] : l.balance;
           const extraNote = (target && target.id===l.id && wf2.extra>0.5) ? ` · this month's extra also goes here (see below)` : '';
           subParts = `min. payment · ${l.apr.toFixed(2)}% APR · balance ${money(l.balance)} → ${money(after)}${extraNote}`;
+        } else if (isOneOff){
+          subParts = '';
         } else {
           const freqPart = (l.freq && l.freq!=='monthly') ? `${money(l.rawAmount)} ${freqLabel(l.freq)} · billed this month as ${freqPrefix(l.freq)}${money(l.plannedAmount)}` : '';
           const dueDayPart = l.dueDay ? `due on the ${ordinal(l.dueDay)}` : '';
@@ -927,8 +950,9 @@ function recomputeMonth(){
         const varianceNote = (l.actualOverride && Math.abs(variance)>0.5)
           ? ` <span style="color:${variance<0?'var(--good)':'var(--danger)'}">(${variance<0?'−':'+'}${money(Math.abs(variance))} vs planned)</span>`
           : '';
-        const onPaidChange = isDebt ? `App.setDebtPaid('${l.id}', this.checked, ${l.plannedAmount})` : `App.setBillPaid('${l.id}', this.checked, ${l.plannedAmount})`;
-        const onAmountChange = isDebt ? `App.setDebtAmountPaid('${l.id}', this.value)` : `App.setBillAmountPaid('${l.id}', this.value)`;
+        const onPaidChange = isDebt ? `App.setDebtPaid('${l.id}', this.checked, ${l.plannedAmount})` : isOneOff ? `App.setOneOffPaid('${l.id}', this.checked, ${l.plannedAmount})` : `App.setBillPaid('${l.id}', this.checked, ${l.plannedAmount})`;
+        const onAmountChange = isDebt ? `App.setDebtAmountPaid('${l.id}', this.value)` : isOneOff ? `App.setOneOffAmountPaid('${l.id}', this.value)` : `App.setBillAmountPaid('${l.id}', this.value)`;
+        const deleteBtn = isOneOff ? `<button class="icon-btn" onclick="App.deleteOneOffBill('${l.id}')" title="Delete">✕</button>` : '';
 
         return `
         <div class="wline bill-line ${isPaid?'is-paid':''}">
@@ -939,6 +963,7 @@ function recomputeMonth(){
             </label>
             <div class="nm">${esc(l.name)}${subParts ? `<div class="sub2">${subParts}</div>` : ''}</div>
             ${statusChip(l)}
+            ${deleteBtn}
           </div>
           <div class="bill-bottom">
             <span class="muted" style="font-size:12px">Planned ${money(l.plannedAmount)}${varianceNote}</span>
@@ -989,6 +1014,13 @@ function recomputeMonth(){
     ${statsHtml}
     ${shortfallBanner}
     ${group('essential','Essential bills','var(--accent)')}
+    <div class="section-label"><span class="dot" style="background:var(--danger)"></span>One-off bills</div>
+    ${oneOffThisMonth.length ? group('oneOff','','var(--danger)') : '<div class="hist-empty">No one-off bills this month — a repair, a one-time expense.</div>'}
+    <div class="add-row" style="margin-bottom:20px;">
+      <label class="f">Name<input type="text" id="oo-name" placeholder="e.g. Boiler repair"></label>
+      <label class="f">Amount<input type="number" id="oo-amount" min="0" step="0.01" placeholder="0"></label>
+      <button class="btn sm" style="align-self:flex-end" onclick="App.addOneOffBill()">+ Add one-off bill</button>
+    </div>
     ${group('debtMin','Debt minimum payments','var(--debt)')}
     ${group('discretionary','Discretionary','var(--warn)')}
     ${extraHtml}
@@ -1264,6 +1296,28 @@ window.App = {
     await loadAll(); renderTab();
   },
 
+  async addOneOffBill(){
+    const name = document.getElementById('oo-name').value.trim();
+    const amount = parseFloat(document.getElementById('oo-amount').value);
+    if (!name || !(amount>=0)) return;
+    await addDocv('oneOffBills', { monthId:S.currentMonthId, name, amount, paid:false, actualAmount:null });
+    await loadAll(); renderTab();
+  },
+  async deleteOneOffBill(id){ await deleteDocv('oneOffBills', id); await loadAll(); renderTab(); },
+  async setOneOffPaid(id, checked, plannedAmount){
+    const b = S.oneOffBills.find(x=>x.id===id); if(!b) return;
+    const actualAmount = b.actualAmount!=null ? b.actualAmount : plannedAmount;
+    await setDocv('oneOffBills', id, { monthId:b.monthId, name:b.name, amount:b.amount, paid:checked, actualAmount });
+    await loadAll(); renderTab();
+  },
+  async setOneOffAmountPaid(id, raw){
+    const b = S.oneOffBills.find(x=>x.id===id); if(!b) return;
+    const value = parseFloat(raw);
+    if (!(value>=0)) { renderTab(); return; }
+    await setDocv('oneOffBills', id, { monthId:b.monthId, name:b.name, amount:b.amount, paid:b.paid, actualAmount:value });
+    await loadAll(); renderTab();
+  },
+
   async exportBackup(){
     const data = await exportBackupData();
     const blob = new Blob([JSON.stringify(data, null, 2)], { type:'application/json' });
@@ -1308,7 +1362,8 @@ window.App = {
     const availableFunds = currentBalance + remainingWeekly;
     const paymentsByExpense = buildPaymentOverrides(S.currentMonthId);
     const paymentsByDebt = buildDebtPaymentOverrides(S.currentMonthId);
-    const wf = computeWaterfall(availableFunds, S.expenses, S.debts, minOrderStrategy, S.extraTargetId, S.currentMonthId, { expense: paymentsByExpense, debt: paymentsByDebt });
+    const oneOffThisMonth = S.oneOffBills.filter(b=>b.monthId===S.currentMonthId);
+    const wf = computeWaterfall(availableFunds, S.expenses, S.debts, minOrderStrategy, S.extraTargetId, S.currentMonthId, { expense: paymentsByExpense, debt: paymentsByDebt }, oneOffThisMonth);
     const requiredTotal = wf.lines.filter(l=>l.section!=='discretionary' && !l.isPaid).reduce((s,l)=>s+l.due,0);
     const targetDebt = wf.liveDebts.find(d=>d.id===S.extraTargetId) || null;
     const updatedDebts = applyMonthToDebts(S.debts, wf.lines, wf.extra, S.extraTargetId, minOrderStrategy, S.currentMonthId);
