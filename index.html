@@ -495,7 +495,11 @@ const S = {
 
 async function seedIfEmpty(){
   const settings = await getSettingsv();
-  if (settings && settings.seeded) { S.strategy = settings.strategy || 'compare'; return; }
+  if (settings && settings.seeded) {
+    S.strategy = settings.strategy || 'compare';
+    S.assumedExtra = settings.assumedExtra!=null ? settings.assumedExtra : null;
+    return;
+  }
   const sampleExpenses = [
     { name:'Rent', amount:1450, category:'essential', order:1, frequency:'monthly' },
     { name:'Electricity', amount:110, category:'essential', order:2, frequency:'monthly' },
@@ -1104,7 +1108,7 @@ function payoffShellHtml(){
     <div class="stat"><div class="k">Total debt balance</div><div class="v mono">${money(totalBalance)}</div></div>
     <div class="stat">
       <div class="k">Assumed extra / month</div>
-      <div><input type="number" id="pp-extra" min="0" step="1" value="${S.assumedExtra}" style="width:120px; font-size:18px; font-weight:600;" oninput="App.onAssumedExtraInput(this.value)"></div>
+      <div><input type="number" id="pp-extra" min="0" step="1" value="${S.assumedExtra}" style="width:120px; font-size:18px; font-weight:600;" oninput="App.onAssumedExtraInput(this.value)" onchange="App.saveAssumedExtra()"></div>
     </div>
   </div>
   <div id="payoffResults"></div>`;
@@ -1238,7 +1242,12 @@ window.App = {
   setTab(t){ S.activeTab=t; S.editingConfirmed=false; render(); },
   dismissBanner(){ S.bannerDismissed=true; try{localStorage.setItem('waterfall_sample_dismissed','1');}catch(e){} render(); },
 
-  async setStrategy(s){ S.strategy=s; S.extraTargetId=null; await setSettingsv({ strategy:s, seeded:true }); render(); },
+  async setStrategy(s){
+    S.strategy=s; S.extraTargetId=null;
+    const current = (await getSettingsv()) || {};
+    await setSettingsv({ ...current, strategy:s, seeded:true });
+    render();
+  },
 
   async addExpense(){
     const name = document.getElementById('ne-name').value.trim();
@@ -1476,12 +1485,15 @@ window.App = {
       confirmedAt: new Date().toISOString(),
     });
     S.editingConfirmed = false;
-    S.assumedExtra = null;
     await loadAll();
     renderTab();
   },
 
   onAssumedExtraInput(v){ S.assumedExtra = v; recomputePayoff(); },
+  async saveAssumedExtra(){
+    const current = (await getSettingsv()) || {};
+    await setSettingsv({ ...current, assumedExtra: S.assumedExtra });
+  },
 };
 
 /* ---------------- init ---------------- */
