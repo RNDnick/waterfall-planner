@@ -116,10 +116,6 @@
   .field-block{ display:flex; flex-direction:column; gap:5px; }
   .field-block .fl{ font-size:10.5px; text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted); font-weight:700; }
   .field-block .cell-wrap{ justify-content:flex-start; }
-  .order-btns{ display:inline-flex; flex-direction:column; gap:1px; vertical-align:middle; }
-  .order-btns button{ appearance:none; border:0; background:none; color:var(--text-muted); cursor:pointer; font-size:9px; line-height:1; padding:1px 3px; }
-  .order-btns button:hover{ color:var(--accent-2); }
-  .order-btns button:disabled{ opacity:.25; cursor:default; }
 
   .badge{ display:inline-flex; align-items:center; gap:5px; font-size:11.5px; font-weight:600; padding:3px 9px; border-radius:100px; white-space:nowrap; }
   .badge.essential{ background:var(--accent-soft); color:var(--accent-2); }
@@ -325,6 +321,20 @@ function sortAvalanche(ds, getApr){ getApr = getApr || (d=>d.apr); return [...ds
 function sortSnowball(ds, getApr){ getApr = getApr || (d=>d.apr); return [...ds].sort((a,b)=> a.balance-b.balance || getApr(b)-getApr(a)); }
 function sortByStrategy(ds, strat, getApr){ return strat==='snowball' ? sortSnowball(ds, getApr) : sortAvalanche(ds, getApr); }
 
+function dueSortKey(item){
+  if (item.frequency === 'weekly') return item.weekday!=null ? item.weekday : 5;
+  return item.dueDay!=null ? item.dueDay : null;
+}
+function sortByDueDate(items){
+  return [...items].sort((a,b) => {
+    const ka = dueSortKey(a), kb = dueSortKey(b);
+    if (ka==null && kb==null) return 0;
+    if (ka==null) return 1;
+    if (kb==null) return -1;
+    return ka - kb;
+  });
+}
+
 function buildPaymentOverrides(monthId){
   const map = {};
   S.billPayments.filter(p=>p.monthId===monthId).forEach(p=> map[p.expenseId] = p);
@@ -361,11 +371,11 @@ function computeWaterfall(income, expenses, debts, minOrderStrategy, extraTarget
   const debtOverrides = overrides.debt || {};
   let remaining = income;
   const lines = [];
-  const essentials = expenses.filter(e=>e.category==='essential').sort((a,b)=>a.order-b.order);
-  const discretionary = expenses.filter(e=>e.category==='discretionary').sort((a,b)=>a.order-b.order);
+  const essentials = sortByDueDate(expenses.filter(e=>e.category==='essential'));
+  const discretionary = sortByDueDate(expenses.filter(e=>e.category==='discretionary'));
   const live = debts.filter(d=>d.balance>0.005);
   const getApr = d => effectiveApr(d, monthId);
-  const orderedMin = sortByStrategy(live, minOrderStrategy, getApr);
+  const orderedMin = sortByDueDate(live);
 
   for (const e of essentials){
     const ov = expenseOverrides[e.id];
@@ -636,8 +646,8 @@ function renderTab(){
 
 /* ---- setup tab ---- */
 function setupHtml(){
-  const essentials = S.expenses.filter(e=>e.category==='essential').sort((a,b)=>a.order-b.order);
-  const discretionary = S.expenses.filter(e=>e.category==='discretionary').sort((a,b)=>a.order-b.order);
+  const essentials = sortByDueDate(S.expenses.filter(e=>e.category==='essential'));
+  const discretionary = sortByDueDate(S.expenses.filter(e=>e.category==='discretionary'));
   function incomeRows(){
     return S.incomeSources.map(src => {
       const isOnce = src.frequency==='once';
@@ -686,11 +696,8 @@ function setupHtml(){
     return list.map((e,i) => `
       <div class="item-row">
         <div class="item-top">
-          <span class="order-btns">
-            <button ${i===0?'disabled':''} onclick="App.moveExpense('${e.id}','${cat}',-1)" title="Higher priority">▲</button>
-            <button ${i===list.length-1?'disabled':''} onclick="App.moveExpense('${e.id}','${cat}',1)" title="Lower priority">▼</button>
-          </span>
           <input class="name-input" type="text" value="${esc(e.name)}" onchange="App.updateExpense('${e.id}','name',this.value)">
+          ${dueSortKey(e)==null ? `<span class="chip partial" title="Add a due day so this is prioritized correctly">No due date</span>` : ''}
           <button class="icon-btn" onclick="App.deleteExpense('${e.id}')" title="Delete">✕</button>
         </div>
         <div class="item-fields">
@@ -771,7 +778,7 @@ function setupHtml(){
   <div class="grid2">
     <div class="card">
       <div class="card-head">
-        <div><h2>Static bills</h2><div class="sub">Rent, utilities, subscriptions — things that don't change much.</div></div>
+        <div><h2>Static bills</h2><div class="sub">Rent, utilities, subscriptions — sorted by due date, which also sets payment priority if money's short.</div></div>
       </div>
       <div class="item-list">
         ${essentials.length||discretionary.length ? '' : '<div class="hist-empty">No bills yet — add one below.</div>'}
@@ -797,13 +804,14 @@ function setupHtml(){
 
     <div class="card">
       <div class="card-head">
-        <div><h2>Debts</h2><div class="sub">Cards, loans — anything carrying a balance and interest.</div></div>
+        <div><h2>Debts</h2><div class="sub">Cards, loans — sorted by due date, which sets minimum-payment priority if money's short (the extra payment target is still set by your pay-down strategy above).</div></div>
       </div>
       <div class="item-list">
-        ${S.debts.length ? S.debts.map(d => `
+        ${S.debts.length ? sortByDueDate(S.debts).map(d => `
           <div class="item-row">
             <div class="item-top">
               <input class="name-input" type="text" value="${esc(d.name)}" onchange="App.updateDebt('${d.id}','name',this.value)">
+              ${dueSortKey(d)==null ? `<span class="chip partial" title="Add a due day so this is prioritized correctly">No due date</span>` : ''}
               <button class="icon-btn" onclick="App.deleteDebt('${d.id}')" title="Delete">✕</button>
             </div>
             <div class="item-fields">
@@ -1260,9 +1268,7 @@ window.App = {
     const category = document.getElementById('ne-cat').value;
     const frequency = document.getElementById('ne-freq').value;
     if (!name || !(amount>=0)) return;
-    const sameCategory = S.expenses.filter(e=>e.category===category);
-    const order = sameCategory.length ? Math.max(...sameCategory.map(e=>e.order))+1 : 1;
-    await addDocv('expenses', { name, amount, category, order, frequency, weekday:5 });
+    await addDocv('expenses', { name, amount, category, order:1, frequency, weekday:5 });
     await loadAll(); renderTab();
   },
   async deleteExpense(id){ await deleteDocv('expenses', id); await loadAll(); renderTab(); },
@@ -1278,19 +1284,7 @@ window.App = {
   },
   async setExpenseCategory(id, category){
     const e = S.expenses.find(x=>x.id===id); if(!e) return;
-    const sameCategory = S.expenses.filter(x=>x.category===category && x.id!==id);
-    const order = sameCategory.length ? Math.max(...sameCategory.map(x=>x.order))+1 : 1;
-    await setDocv('expenses', id, { name:e.name, amount:e.amount, category, order, frequency:e.frequency||'monthly', weekday:(e.weekday!=null?e.weekday:5), dueDay:(e.dueDay!=null?e.dueDay:null) });
-    await loadAll(); renderTab();
-  },
-  async moveExpense(id, category, dir){
-    const list = S.expenses.filter(e=>e.category===category).sort((a,b)=>a.order-b.order);
-    const i = list.findIndex(e=>e.id===id);
-    const j = i+dir;
-    if (j<0 || j>=list.length) return;
-    const a=list[i], b=list[j];
-    await setDocv('expenses', a.id, { name:a.name, amount:a.amount, category:a.category, order:b.order, frequency:a.frequency||'monthly', weekday:(a.weekday!=null?a.weekday:5), dueDay:(a.dueDay!=null?a.dueDay:null) });
-    await setDocv('expenses', b.id, { name:b.name, amount:b.amount, category:b.category, order:a.order, frequency:b.frequency||'monthly', weekday:(b.weekday!=null?b.weekday:5), dueDay:(b.dueDay!=null?b.dueDay:null) });
+    await setDocv('expenses', id, { name:e.name, amount:e.amount, category, order:e.order||1, frequency:e.frequency||'monthly', weekday:(e.weekday!=null?e.weekday:5), dueDay:(e.dueDay!=null?e.dueDay:null) });
     await loadAll(); renderTab();
   },
 
