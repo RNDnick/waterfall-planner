@@ -559,12 +559,12 @@ async function loadAll(){
 function restoreMonthInputs(monthId){
   const existing = S.months.find(m=>m.id===monthId);
   const draft = S.monthDrafts.find(d=>d.id===monthId);
-  if (existing){
-    S.currentIncome = existing.salary!=null ? existing.salary : existing.income;
-    S.currentBalance = existing.currentBalance!=null ? existing.currentBalance : '';
-  } else if (draft){
+  if (draft){
     S.currentIncome = draft.salary!=null ? draft.salary : '';
     S.currentBalance = draft.currentBalance!=null ? draft.currentBalance : '';
+  } else if (existing){
+    S.currentIncome = existing.salary!=null ? existing.salary : existing.income;
+    S.currentBalance = existing.currentBalance!=null ? existing.currentBalance : '';
   } else {
     S.currentIncome = '';
     S.currentBalance = '';
