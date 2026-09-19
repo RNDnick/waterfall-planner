@@ -390,7 +390,7 @@ function computeWaterfall(income, expenses, debts, minOrderStrategy, extraTarget
     let due, pay;
     if (isPaid){ due = actualAmount; pay = actualAmount; }
     else { due = plannedMin; pay = Math.max(0, Math.min(remaining, due)); remaining -= pay; }
-    lines.push({ section:'debtMin', id:d.id, name:d.name, due, plannedAmount:plannedMin, actualOverride:isPaid, isPaid, paid:pay, apr:getApr(d), balance:d.balance });
+    lines.push({ section:'debtMin', id:d.id, name:d.name, due, plannedAmount:plannedMin, actualOverride:isPaid, isPaid, paid:pay, apr:getApr(d), balance:d.balance, dueDay:d.dueDay||null });
   }
   for (const x of discretionary){
     const ov = expenseOverrides[x.id];
@@ -528,7 +528,7 @@ async function graduatePromos(){
   for (const d of S.debts){
     if (d.promoEnd && d.promoEnd < today){
       const newApr = (d.postApr!=null && d.postApr!=='') ? Number(d.postApr) : d.apr;
-      await setDocv('debts', d.id, { name:d.name, balance:d.balance, apr:newApr, minPayment:d.minPayment, promoEnd:null, postApr:null });
+      await setDocv('debts', d.id, { name:d.name, balance:d.balance, apr:newApr, minPayment:d.minPayment, promoEnd:null, postApr:null, dueDay:d.dueDay||null });
       d.apr = newApr; d.promoEnd = null; d.postApr = null;
     }
   }
@@ -827,6 +827,10 @@ function setupHtml(){
                 <span class="fl">Then APR</span>
                 <div class="cell-wrap"><input class="cell-input num" style="width:76px;" type="number" min="0" step="0.01" placeholder="—" value="${d.postApr!=null?d.postApr:''}" onchange="App.updateDebt('${d.id}','postApr',this.value)" title="APR after the intro period ends"><span class="cell-affix">%</span></div>
               </div>
+              <div class="field-block">
+                <span class="fl">Due day</span>
+                <input class="cell-input num" style="width:64px" type="number" min="1" max="31" placeholder="—" value="${d.dueDay!=null?d.dueDay:''}" onchange="App.updateDebt('${d.id}','dueDay',this.value)" title="Day of the month the minimum payment is due (reference only, doesn't affect the budget)">
+              </div>
             </div>
           </div>`).join('') : '<div class="hist-empty">No debts yet — add one below.</div>'}
       </div>
@@ -1004,7 +1008,8 @@ function recomputeMonth(){
         if (isDebt){
           const after = afterMinById[l.id]!=null ? afterMinById[l.id] : l.balance;
           const extraNote = (target && target.id===l.id && wf2.extra>0.5) ? ` · this month's extra also goes here (see below)` : '';
-          subParts = `min. payment · ${l.apr.toFixed(2)}% APR · balance ${money(l.balance)} → ${money(after)}${extraNote}`;
+          const dueDayPart = l.dueDay ? ` · due on the ${ordinal(l.dueDay)}` : '';
+          subParts = `min. payment · ${l.apr.toFixed(2)}% APR · balance ${money(l.balance)} → ${money(after)}${dueDayPart}${extraNote}`;
         } else if (isOneOff){
           subParts = '';
         } else {
@@ -1305,8 +1310,9 @@ window.App = {
     if (field==='name'){ value = raw.trim(); if (!value) { renderTab(); return; } }
     else if (field==='promoEnd'){ value = raw || null; }
     else if (field==='postApr'){ value = raw==='' ? null : parseFloat(raw); if (value!=null && !(value>=0)) { renderTab(); return; } }
+    else if (field==='dueDay'){ value = raw==='' ? null : parseInt(raw,10); if (value!=null && !(value>=1 && value<=31)) { renderTab(); return; } }
     else { value = parseFloat(raw); if (!(value>=0)) { renderTab(); return; } }
-    await setDocv('debts', id, { name:d.name, balance:d.balance, apr:d.apr, minPayment:d.minPayment, promoEnd:d.promoEnd||null, postApr:(d.postApr!=null?d.postApr:null), [field]:value });
+    await setDocv('debts', id, { name:d.name, balance:d.balance, apr:d.apr, minPayment:d.minPayment, promoEnd:d.promoEnd||null, postApr:(d.postApr!=null?d.postApr:null), dueDay:(d.dueDay!=null?d.dueDay:null), [field]:value });
     await loadAll(); renderTab();
   },
 
@@ -1467,7 +1473,7 @@ window.App = {
     for (const d of updatedDebts){
       const orig = S.debts.find(o=>o.id===d.id);
       if (orig && Math.abs(orig.balance-d.balance) > 0.001){
-        await setDocv('debts', d.id, { name:d.name, balance:Math.round(d.balance*100)/100, apr:d.apr, minPayment:d.minPayment, promoEnd:orig.promoEnd||null, postApr:(orig.postApr!=null?orig.postApr:null) });
+        await setDocv('debts', d.id, { name:d.name, balance:Math.round(d.balance*100)/100, apr:d.apr, minPayment:d.minPayment, promoEnd:orig.promoEnd||null, postApr:(orig.postApr!=null?orig.postApr:null), dueDay:(orig.dueDay!=null?orig.dueDay:null) });
       }
     }
     await setDocv('months', S.currentMonthId, {
