@@ -611,7 +611,7 @@ async function importBackupData(data){
 const app = document.getElementById('app');
 
 function tabsHtml(){
-  const tabs = [['setup','Setup'],['month','This Month'],['payoff','Payoff Plan']];
+  const tabs = [['setup','Setup'],['month','This Month'],['payoff','Payoff Plan'],['dashboard','Dashboard']];
   return '<div class="tabs">' + tabs.map(([k,l]) =>
     `<button class="tab-btn ${S.activeTab===k?'active':''}" onclick="App.setTab('${k}')">${l}</button>`
   ).join('') + '</div>';
@@ -641,7 +641,8 @@ function renderTab(){
   const root = document.getElementById('tabroot');
   if (S.activeTab==='setup') root.innerHTML = setupHtml();
   else if (S.activeTab==='month') { root.innerHTML = monthShellHtml(); recomputeMonth(); }
-  else { root.innerHTML = payoffShellHtml(); recomputePayoff(); }
+  else if (S.activeTab==='payoff') { root.innerHTML = payoffShellHtml(); recomputePayoff(); }
+  else root.innerHTML = dashboardHtml();
 }
 
 /* ---- setup tab ---- */
@@ -1248,6 +1249,179 @@ function historyTableHtml(){
       </tbody>
     </table></div>
   </div>`;
+}
+
+/* ---- dashboard tab ---- */
+function dashNiceTop(maxV){
+  if (maxV<=0) return 10;
+  const mag = Math.pow(10, Math.floor(Math.log10(maxV)));
+  const n = maxV/mag;
+  const step = n<=1?1:n<=2?2:n<=5?5:10;
+  return step*mag;
+}
+
+function dashboardData(){
+  const monthId = S.currentMonthId;
+  const essentials = S.expenses.filter(e=>e.category==='essential');
+  const discretionary = S.expenses.filter(e=>e.category==='discretionary');
+  const essentialTotal = essentials.reduce((s,e)=>s+monthlyAmount(e,monthId),0);
+  const discretionaryTotal = discretionary.reduce((s,e)=>s+monthlyAmount(e,monthId),0);
+  const totalDebt = S.debts.reduce((s,d)=>s+d.balance,0);
+  const confirmed = [...S.months].sort((a,b)=>a.id.localeCompare(b.id));
+  const recent = confirmed.slice(-12);
+  const lastMonth = confirmed.length ? confirmed[confirmed.length-1] : null;
+  const debtReduced = confirmed.reduce((sum,m)=> sum + (m.debtSnapshots||[]).reduce((s,sn)=>s+(sn.before-sn.after),0), 0);
+  return { monthId, essentialTotal, discretionaryTotal, totalDebt, confirmed, recent, lastMonth, debtReduced };
+}
+
+function debtTrendPoints(confirmed, liveTotal){
+  if (!confirmed.length) return [];
+  const pts = [];
+  const first = confirmed[0];
+  const startTotal = (first.debtSnapshots||[]).reduce((s,sn)=>s+sn.before,0);
+  pts.push({ label:'Start', value:startTotal });
+  confirmed.forEach(m=>{
+    const afterTotal = (m.debtSnapshots||[]).reduce((s,sn)=>s+sn.after,0);
+    pts.push({ label:monthLabel(m.id), value:afterTotal });
+  });
+  const lastVal = pts[pts.length-1].value;
+  if (Math.abs(liveTotal - lastVal) > 0.5) pts.push({ label:'Now', value:liveTotal });
+  return pts;
+}
+
+function buildDebtHistorySvg(points){
+  if (points.length<2){
+    return `<div class="hist-empty">Confirm at least one month in "This Month" to start tracking your debt trend.</div>`;
+  }
+  const W=640,H=200,padL=64,padR=16,padT=14,padB=26;
+  const maxV = Math.max(...points.map(p=>p.value), 1);
+  const top = dashNiceTop(maxV);
+  const x = i => padL + (points.length===1?0:(i/(points.length-1))*(W-padL-padR));
+  const y = v => padT + (1-(v/top))*(H-padT-padB);
+  const path = points.map((p,i)=>(i===0?'M':'L')+x(i).toFixed(1)+','+y(p.value).toFixed(1)).join(' ');
+  const zeroY = y(0);
+  const areaPath = path + ` L${x(points.length-1).toFixed(1)},${zeroY.toFixed(1)} L${x(0).toFixed(1)},${zeroY.toFixed(1)} Z`;
+  let gridlines='', yLabels='';
+  for (let i=0;i<=4;i++){
+    const v = top*i/4;
+    const yy=y(v);
+    gridlines += `<line x1="${padL}" y1="${yy.toFixed(1)}" x2="${W-padR}" y2="${yy.toFixed(1)}" stroke="var(--border)" stroke-width="1"/>`;
+    yLabels += `<text x="${padL-8}" y="${(yy+4).toFixed(1)}" text-anchor="end" font-size="10.5" fill="var(--text-muted)" font-family="var(--font-mono)">${money(v)}</text>`;
+  }
+  const step = points.length>8 ? Math.ceil(points.length/8) : 1;
+  let xLabels='';
+  points.forEach((p,i)=>{
+    if (i%step!==0 && i!==points.length-1) return;
+    const anchor = i===0 ? 'start' : (i===points.length-1 ? 'end' : 'middle');
+    xLabels += `<text x="${x(i).toFixed(1)}" y="${H-8}" text-anchor="${anchor}" font-size="10.5" fill="var(--text-muted)" font-family="var(--font-mono)">${esc(p.label)}</text>`;
+  });
+  const lastX = x(points.length-1), lastY = y(points[points.length-1].value);
+  const lastLabelX = Math.min(Math.max(lastX,padL+24),W-padR-8);
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="Total debt balance over time">
+    ${gridlines}
+    <path d="${areaPath}" fill="var(--accent)" opacity="0.08" stroke="none"/>
+    <path d="${path}" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+    <circle cx="${lastX.toFixed(1)}" cy="${lastY.toFixed(1)}" r="4" fill="var(--accent)" stroke="var(--surface)" stroke-width="2"/>
+    <text x="${lastLabelX.toFixed(1)}" y="${(lastY-10).toFixed(1)}" text-anchor="middle" font-size="11.5" font-weight="700" fill="var(--text)" font-family="var(--font-mono)">${money(points[points.length-1].value)}</text>
+    ${yLabels}${xLabels}
+    <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${H-padB}" stroke="var(--border)" stroke-width="1"/>
+  </svg>`;
+}
+
+function cashflowRows(recent){
+  return recent.map(m=>({ label:monthLabel(m.id), a:m.income||0, b:m.requiredTotal||0 }));
+}
+
+function buildGroupedBarSvg(rows, aColor, bColor){
+  if (!rows.length) return `<div class="hist-empty">Confirm at least one month in "This Month" to see income vs. bills.</div>`;
+  const W=640,H=200,padL=64,padR=16,padT=10,padB=26;
+  const maxV = dashNiceTop(Math.max(...rows.map(r=>Math.max(r.a,r.b)),1));
+  const x0=padL, plotW=W-padL-padR, plotH=H-padT-padB;
+  const y = v => padT + (1-v/maxV)*plotH;
+  const groupW = plotW/rows.length;
+  const barW = Math.min(24, groupW*0.32);
+  const gap=2;
+  let bars='', xLabels='';
+  rows.forEach((r,i)=>{
+    const cx = x0 + groupW*i + groupW/2;
+    const ax = cx-gap/2-barW, bx = cx+gap/2;
+    const ay=y(r.a), by=y(r.b);
+    bars += `<rect x="${ax.toFixed(1)}" y="${ay.toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(0,padT+plotH-ay).toFixed(1)}" rx="3" fill="${aColor}"/>`;
+    bars += `<rect x="${bx.toFixed(1)}" y="${by.toFixed(1)}" width="${barW.toFixed(1)}" height="${Math.max(0,padT+plotH-by).toFixed(1)}" rx="3" fill="${bColor}"/>`;
+    xLabels += `<text x="${cx.toFixed(1)}" y="${H-8}" text-anchor="middle" font-size="10.5" fill="var(--text-muted)" font-family="var(--font-mono)">${esc(r.label)}</text>`;
+  });
+  let gridlines='', yLabels='';
+  for (let i=0;i<=3;i++){
+    const v=maxV*i/3, yy=y(v);
+    gridlines += `<line x1="${padL}" y1="${yy.toFixed(1)}" x2="${W-padR}" y2="${yy.toFixed(1)}" stroke="var(--border)" stroke-width="1"/>`;
+    yLabels += `<text x="${padL-8}" y="${(yy+4).toFixed(1)}" text-anchor="end" font-size="10.5" fill="var(--text-muted)" font-family="var(--font-mono)">${money(v)}</text>`;
+  }
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="Income versus committed spending by month">
+    ${gridlines}${bars}${yLabels}${xLabels}
+    <line x1="${padL}" y1="${(padT+plotH).toFixed(1)}" x2="${W-padR}" y2="${(padT+plotH).toFixed(1)}" stroke="var(--text-muted)" stroke-width="1"/>
+  </svg>`;
+}
+
+function billRows(monthId){
+  return S.expenses.map(e=>({ name:e.name, value:monthlyAmount(e,monthId), cat:e.category }))
+    .filter(r=>r.value>0.005)
+    .sort((a,b)=>b.value-a.value);
+}
+
+function buildHBarSvg(rows){
+  if (!rows.length) return `<div class="hist-empty">No bills set up yet — add some in Setup.</div>`;
+  const W=640, rowH=28, topPad=6;
+  const H = topPad*2 + rows.length*rowH;
+  const padL=140, padR=76;
+  const plotW = W-padL-padR;
+  const maxV = Math.max(...rows.map(r=>r.value),1);
+  let content='';
+  rows.forEach((r,i)=>{
+    const yy = topPad+i*rowH;
+    const bw = Math.max(3,(r.value/maxV)*(plotW-4));
+    const bh=16, by=yy+(rowH-bh)/2;
+    const color = r.cat==='discretionary' ? 'var(--debt)' : 'var(--accent)';
+    content += `<text x="${padL-10}" y="${(yy+rowH/2+4).toFixed(1)}" text-anchor="end" font-size="12.5" fill="var(--text-muted)">${esc(r.name)}</text>`;
+    content += `<rect x="${padL}" y="${by.toFixed(1)}" width="${bw.toFixed(1)}" height="${bh}" rx="4" fill="${color}"/>`;
+    content += `<text x="${(padL+bw+8).toFixed(1)}" y="${(yy+rowH/2+4).toFixed(1)}" font-size="12.5" font-weight="700" fill="var(--text)" font-family="var(--font-mono)">${money(r.value)}</text>`;
+  });
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="This month's bills by amount">${content}</svg>`;
+}
+
+function dashboardHtml(){
+  const d = dashboardData();
+  const trendPoints = debtTrendPoints(d.confirmed, d.totalDebt);
+  const cashRows = cashflowRows(d.recent);
+  const bills = billRows(d.monthId);
+  const hasExtra = d.lastMonth && d.lastMonth.extra>0;
+
+  return `
+  <div class="stats">
+    <div class="stat"><div class="k">Total debt balance</div><div class="v mono">${money(d.totalDebt)}</div></div>
+    <div class="stat"><div class="k">Essential bills / month</div><div class="v mono">${money(d.essentialTotal)}</div></div>
+    <div class="stat"><div class="k">Discretionary / month</div><div class="v mono">${money(d.discretionaryTotal)}</div></div>
+    <div class="stat ${hasExtra?'good':''}"><div class="k">Extra toward debt${d.lastMonth?` · ${esc(monthLabel(d.lastMonth.id))}`:''}</div><div class="v mono">${d.lastMonth ? money(d.lastMonth.extra||0) : '—'}</div></div>
+    <div class="stat"><div class="k">Debt reduced so far</div><div class="v mono">${money(d.debtReduced)}</div></div>
+  </div>
+
+  <div class="grid2">
+    <div class="card chart-card">
+      <div class="card-head"><div><h2>Total debt over time</h2><div class="sub">Since you started tracking</div></div></div>
+      ${buildDebtHistorySvg(trendPoints)}
+    </div>
+    <div class="card chart-card">
+      <div class="card-head"><div><h2>Income vs. bills &amp; minimums</h2><div class="sub">Confirmed months</div></div></div>
+      ${buildGroupedBarSvg(cashRows, 'var(--accent)', 'var(--debt)')}
+      <div class="legend"><span><i style="background:var(--accent)"></i>Income</span><span><i style="background:var(--debt)"></i>Bills &amp; minimums</span></div>
+    </div>
+  </div>
+
+  <div class="card chart-card" style="margin-top:20px">
+    <div class="card-head"><div><h2>This month's bills</h2><div class="sub">${esc(monthLabel(d.monthId))}</div></div></div>
+    ${buildHBarSvg(bills)}
+    <div class="legend"><span><i style="background:var(--accent)"></i>Essential</span><span><i style="background:var(--debt)"></i>Discretionary</span></div>
+  </div>
+  `;
 }
 
 /* ---------------- actions ---------------- */
