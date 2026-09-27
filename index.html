@@ -576,7 +576,12 @@ function getBaselineDebts(monthId){
   if (existingMonth && existingMonth.debtSnapshots && existingMonth.debtSnapshots.length){
     return S.debts.map(d => {
       const snap = existingMonth.debtSnapshots.find(s=>s.id===d.id);
-      return snap ? { ...d, balance: snap.before } : d;
+      if (!snap) return d;
+      // If the balance still matches what this month last computed, reconstruct the
+      // month-start balance so re-confirming doesn't double-apply interest/payments.
+      // If it's different, the balance was manually corrected since — keep that correction.
+      if (Math.abs(d.balance - snap.after) < 0.01) return { ...d, balance: snap.before };
+      return d;
     });
   }
   return S.debts;
