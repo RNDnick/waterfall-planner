@@ -258,13 +258,13 @@ function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&am
 const CYCLE_START_DAY = 25;
 function monthIdForDate(d){
   let y = d.getFullYear(), m = d.getMonth()+1;
-  if (d.getDate() >= CYCLE_START_DAY){ m += 1; if (m>12){ m=1; y+=1; } }
+  if (d.getDate() < CYCLE_START_DAY){ m -= 1; if (m<1){ m=12; y-=1; } }
   return y+'-'+String(m).padStart(2,'0');
 }
 function todayMonthId(){ return monthIdForDate(new Date()); }
 function cycleRange(monthId){
   const [y,m] = monthId.split('-').map(Number);
-  return { start: new Date(y, m-2, CYCLE_START_DAY), end: new Date(y, m-1, CYCLE_START_DAY-1) };
+  return { start: new Date(y, m-1, CYCLE_START_DAY), end: new Date(y, m, CYCLE_START_DAY-1) };
 }
 function monthLabel(id){ const [y,m]=id.split('-').map(Number); return new Date(y, m-1, 1).toLocaleDateString('en-GB',{month:'long',year:'numeric'}); }
 function monthRangeLabel(id){
