@@ -1107,6 +1107,7 @@ function recomputeMonth(){
     ${group('discretionary','Discretionary','var(--warn)')}
     <div style="margin-top:20px; display:flex; gap:10px;">
       <button class="btn" ${confirmed?'disabled':''} onclick="App.confirmMonth()">${existing?'Update this month':'Confirm & save this month'}</button>
+      <button class="btn ghost" onclick="App.rollOverMonth()">Roll over to next month →</button>
     </div>
     ${historyHtml}
   `;
@@ -1617,6 +1618,7 @@ window.App = {
     S.editingConfirmed = false;
     renderTab();
   },
+  rollOverMonth(){ App.changeMonth(addMonthsToId(S.currentMonthId, 1)); },
   editConfirmed(){ S.editingConfirmed = true; recomputeMonth(); },
 
   async confirmMonth(){
